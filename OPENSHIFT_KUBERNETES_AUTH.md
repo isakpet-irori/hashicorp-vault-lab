@@ -21,9 +21,10 @@ flowchart LR
 
 ## Requirements
 
-- An OpenShift cluster and a working `oc` login. For a local cluster, use
-  [OpenShift Local (CRC)](https://developers.redhat.com/products/openshift-local/overview);
-  it requires a free Red Hat account and suitable host resources.
+- A running OpenShift cluster and a working `oc` login. For CRC, run
+  `crc start` and verify `oc whoami` before continuing; see
+  [Prerequisites](./PREREQUISITES.md) for workstation, cluster, and access
+  requirements.
 - Terraform 1.5 or later, Helm 3, OpenSSL 3, and the Vault CLI.
 - Permission to create namespaces, a Helm release, persistent volumes, and
   Kubernetes ServiceAccounts. The Vault ServiceAccount must be allowed to

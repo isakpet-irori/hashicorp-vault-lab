@@ -94,6 +94,15 @@ a public route. Keep the port-forward terminal open while using Vault. Press
 **Ctrl+C** there to close the tunnel. Start it again after stopping CRC or
 restarting the Vault pod.
 
+## Vault lab certificates
+
+The TLS setup in the
+[Vault lab guide](./OPENSHIFT_KUBERNETES_AUTH.md) creates a private, local
+root CA in `~/.vault-openshift-lab`. Its key (`ca.key`) signs Vault's server
+certificate; Vault uses `tls.crt` and `tls.key`, while clients trust `ca.crt`.
+This CA is only for the lab, not a certificate service for CRC or your system.
+Keep `ca.key` and `tls.key` private.
+
 The Vault UI is available at
 <https://vault.vault-lab.svc:8200/ui> after following the certificate
 hostname and browser trust steps in

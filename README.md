@@ -7,9 +7,11 @@ example workloads.
 
 ## Lab
 
-Follow [OpenShift Vault: Raft, TLS, and Kubernetes auth](./OPENSHIFT_KUBERNETES_AUTH.md)
-from the beginning. It covers cluster prerequisites, the TLS certificate,
-Vault deployment and initialization, workload identities, and access tests.
+Start with [Prerequisites](./PREREQUISITES.md) to prepare your workstation and
+start and verify CRC (if using a local cluster). Then follow
+[OpenShift Vault: Raft, TLS, and Kubernetes auth](./OPENSHIFT_KUBERNETES_AUTH.md)
+for the TLS certificate, Vault deployment and initialization, workload
+identities, and access tests.
 
 For CRC start/stop, `oc`, console, and port-forward basics, see
 [Local OpenShift workflow](./OPENSHIFT_LOCAL_WORKFLOW.md).
