@@ -1,0 +1,55 @@
+global:
+  openshift: true
+  tlsDisable: false
+
+injector:
+  enabled: false
+
+server:
+  image:
+    repository: docker.io/hashicorp/vault
+  dev:
+    enabled: false
+  authDelegator:
+    enabled: true
+  route:
+    enabled: false
+  ha:
+    enabled: true
+    replicas: 1
+    apiAddr: "https://vault.vault-lab.svc:8200"
+    raft:
+      enabled: true
+      setNodeId: true
+      config: |
+        ui = true
+
+        listener "tcp" {
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+          tls_disable = 0
+          tls_cert_file = "/vault/userconfig/vault-tls/tls.crt"
+          tls_key_file = "/vault/userconfig/vault-tls/tls.key"
+        }
+
+        storage "raft" {
+          path = "/vault/data"
+        }
+
+        service_registration "kubernetes" {}
+  dataStorage:
+    enabled: true
+    size: 5Gi
+    accessMode: ReadWriteOnce
+  volumes:
+    - name: vault-tls
+      secret:
+        secretName: vault-server-tls
+  volumeMounts:
+    - name: vault-tls
+      mountPath: /vault/userconfig/vault-tls
+      readOnly: true
+
+ui:
+  enabled: true
+  serviceType: ClusterIP

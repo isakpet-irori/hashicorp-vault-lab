@@ -1,0 +1,10 @@
+services:
+  vault:
+    image: hashicorp/vault:1.20.4
+    command:
+      - server
+      - -dev
+      - -dev-listen-address=0.0.0.0:8200
+      - -dev-root-token-id=dev-only-token
+    ports:
+      - "127.0.0.1:8200:8200"
