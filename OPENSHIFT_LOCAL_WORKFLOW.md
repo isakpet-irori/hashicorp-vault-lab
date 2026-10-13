@@ -94,6 +94,52 @@ a public route. Keep the port-forward terminal open while using Vault. Press
 **Ctrl+C** there to close the tunnel. Start it again after stopping CRC or
 restarting the Vault pod.
 
+## Open the Vault UI in Firefox
+
+First deploy, initialize, and unseal Vault by following the
+[Vault lab guide](./OPENSHIFT_KUBERNETES_AUTH.md). Keep this port-forward
+running in a terminal while using the UI:
+
+```sh
+oc port-forward -n vault-lab service/vault 8200:8200
+```
+
+The lab certificate is for `vault.vault-lab.svc`, a hostname that normally
+only resolves inside the cluster. Add a temporary host mapping on your Mac so
+Firefox reaches the local port-forward using the certificate's hostname. Open
+`/etc/hosts` as an administrator, for example:
+
+```sh
+sudo vi /etc/hosts
+```
+
+Add this line, unless it is already present, then save and exit:
+
+```text
+# Added for Vault lab 
+127.0.0.1 vault.vault-lab.svc
+# End added for Vault lab
+```
+
+For minimal browser-wide changes, use a dedicated Firefox profile for this
+lab. In Firefox, open `about:profiles`, choose **Create a New Profile**, name
+it (for example, `Vault lab`), and launch Firefox with that profile. In that
+profile, open **Settings > Privacy & Security > Certificates > View
+Certificates... > Authorities > Import...**. Select
+`~/.vault-openshift-lab/ca.crt` and allow it to identify websites when asked.
+This trusts the lab CA in that Firefox profile only; do not import the private
+key `ca.key`.
+
+Open <https://vault.vault-lab.svc:8200/ui> in that Firefox profile. Choose
+the **Token** sign-in method and enter the initial root token printed during
+Vault initialization. Treat that token as a secret.
+
+### Undo the browser setup
+
+When finished, stop the port-forward with **Ctrl+C**. To remove the host
+mapping, edit `/etc/hosts` again with `sudo nano /etc/hosts` and delete only
+the `127.0.0.1 vault.vault-lab.svc` line you added.
+
 ## Vault lab certificates
 
 The TLS setup in the
@@ -102,8 +148,3 @@ root CA in `~/.vault-openshift-lab`. Its key (`ca.key`) signs Vault's server
 certificate; Vault uses `tls.crt` and `tls.key`, while clients trust `ca.crt`.
 This CA is only for the lab, not a certificate service for CRC or your system.
 Keep `ca.key` and `tls.key` private.
-
-The Vault UI is available at
-<https://vault.vault-lab.svc:8200/ui> after following the certificate
-hostname and browser trust steps in
-[OpenShift Vault: Raft, TLS, and Kubernetes authentication](./OPENSHIFT_KUBERNETES_AUTH.md).
