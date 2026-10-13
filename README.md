@@ -1,51 +1,22 @@
-# HashiCorp Vault Learning Lab
+# HashiCorp Vault on OpenShift
 
-A guided, local introduction to HashiCorp Vault. Work through the chapters in
-order: start with KV and policies, learn PKI, then recreate Vault configuration
-with Terraform.
+A from-scratch learning lab for deploying a single-node Vault server on
+OpenShift Local (CRC) or another OpenShift cluster. The final setup uses
+persistent integrated Raft storage, TLS, and Kubernetes authentication for two
+example workloads.
 
-The OpenShift stages can also be run entirely on your own computer with
-OpenShift Local (CRC); a hosted cluster is optional. The tools and lab
-software are available without a software license fee for local learning,
-though CRC requires suitable hardware and a free Red Hat account, and initial
-downloads require an internet connection.
+## Lab
 
-## Course chapters
+Follow [OpenShift Vault: Raft, TLS, and Kubernetes auth](./OPENSHIFT_KUBERNETES_AUTH.md)
+from the beginning. It covers cluster prerequisites, the TLS certificate,
+Vault deployment and initialization, workload identities, and access tests.
 
-1. [Prerequisites and local setup](./PREREQUISITES.md) — install Docker and the
-   Vault CLI, start the Compose-managed development server, and connect to it.
-2. [Vault fundamentals](./VAULT_FUNDAMENTALS.md) — explore the Vault UI and
-   CLI, store KV secrets, apply policies, test tokens, and configure AppRole.
-3. [Vault PKI](./VAULT_PKI.md) — configure a root and intermediate CA, issue
-   certificates, inspect them with OpenSSL, and explore certificate lifecycle.
-4. [Terraform with Vault](./VAULT_TERRAFORM.md) — manage KV, policies, PKI,
-   and AppRole configuration as code.
-5. [OpenShift Stage 1 — Deploy Vault with Helm](./OPENSHIFT_VAULT.md) — deploy
-   the official Vault chart to an OpenShift lab cluster.
-6. [OpenShift Stage 2 — Raft and TLS](./OPENSHIFT_VAULT_RAFT_TLS.md) — replace
-   dev mode with persistent integrated Raft storage and TLS.
-7. [OpenShift Stage 3 — Kubernetes authentication](./OPENSHIFT_KUBERNETES_AUTH.md)
-   — authenticate workloads with ServiceAccounts and narrow Vault policies.
-8. [Local OpenShift workflow](./OPENSHIFT_LOCAL_WORKFLOW.md) — manage CRC,
-   use the OpenShift console and `oc`, and connect to Vault with port-forwarding.
+For CRC start/stop, `oc`, console, and port-forward basics, see
+[Local OpenShift workflow](./OPENSHIFT_LOCAL_WORKFLOW.md).
 
-```mermaid
-flowchart LR
-    Setup["Local setup"] --> Fundamentals --> PKI --> Terraform
-    Terraform --> OCP1["OpenShift: Helm"]
-    OCP1 --> OCP2["OpenShift: Raft + TLS"]
-    OCP2 --> OCP3["OpenShift: Kubernetes auth"]
-```
+## Important
 
-## Suggested workflow
-
-Complete the fundamentals and PKI chapters manually first. Then start with a
-fresh local Vault development server and follow the Terraform chapter to
-recreate a small lab declaratively.
-
-> **Local learning only:** the development server uses temporary storage and a
-> well-known root token. Never use the example token, generated test secrets,
-> or local Terraform state for real systems or credentials.
-
-The `policies/` folder contains policy examples used in the fundamentals
-chapter.
+This is a disposable learning setup, not a production deployment. The Vault
+server is a single node with manual unsealing. Keep the TLS private keys,
+unseal key, root token, and Terraform state private. Never put real application
+credentials in the demo KV values.

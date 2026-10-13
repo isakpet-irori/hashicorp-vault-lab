@@ -1,8 +1,8 @@
 # Local OpenShift workflow
 
 This guide covers the local OpenShift Local (CRC) cluster and the `oc`
-commands used throughout the OpenShift Vault stages. CRC runs an OpenShift
-cluster inside a virtual machine on your Mac; `crc` manages that local
+commands used throughout the OpenShift Vault lab. CRC runs an OpenShift
+cluster inside a virtual machine on your computer; `crc` manages that local
 environment, while `oc` manages resources in the cluster.
 
 ## Start, pause, and reset CRC
@@ -94,7 +94,7 @@ a public route. Keep the port-forward terminal open while using Vault. Press
 **Ctrl+C** there to close the tunnel. Start it again after stopping CRC or
 restarting the Vault pod.
 
-For Stage 1, the local UI address is
-<http://127.0.0.1:8200/ui>. For Stage 2's TLS browser access, use the
-certificate hostname and trust steps in
-[OPENSHIFT_VAULT_RAFT_TLS.md](./OPENSHIFT_VAULT_RAFT_TLS.md).
+The Vault UI is available at
+<https://vault.vault-lab.svc:8200/ui> after following the certificate
+hostname and browser trust steps in
+[OpenShift Vault: Raft, TLS, and Kubernetes authentication](./OPENSHIFT_KUBERNETES_AUTH.md).

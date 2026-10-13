@@ -29,19 +29,10 @@ variable "kube_context" {
   default     = ""
 }
 
-variable "vault_profile" {
-  description = "Vault Helm values profile to deploy."
-  type        = string
-
-  validation {
-    condition     = contains(["dev", "raft-tls"], var.vault_profile)
-    error_message = "vault_profile must be either dev or raft-tls."
-  }
-}
-
 variable "enable_kubernetes_auth" {
-  description = "Whether to manage Stage 3 Kubernetes authentication resources in Vault."
+  description = "Enable workload auth resources after Vault has been initialized and unsealed."
   type        = bool
+  default     = true
 }
 
 provider "helm" {
@@ -70,7 +61,5 @@ resource "helm_release" "vault" {
   wait             = true
   timeout          = 600
 
-  values = [
-    file("${path.module}/values-${var.vault_profile}.yaml")
-  ]
+  values = [file("${path.module}/values-raft-tls.yaml")]
 }

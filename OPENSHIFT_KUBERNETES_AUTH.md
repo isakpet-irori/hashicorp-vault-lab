@@ -1,61 +1,174 @@
-# OpenShift Stage 3 — Kubernetes Authentication
+# OpenShift Vault: Raft, TLS, and Kubernetes authentication
 
-This stage gives two OpenShift workloads distinct identities in Vault. Each
-workload uses its Kubernetes ServiceAccount token to authenticate; Vault
-validates it with the Kubernetes TokenReview API and returns a short-lived
-Vault token containing only that application's policy.
+Build the complete lab from scratch on OpenShift Local (CRC) or another
+OpenShift cluster. The result is a single-node Vault server with persistent
+integrated Raft storage, TLS, and separate Vault policies for two workload
+ServiceAccounts.
+
+This is a learning setup, not a production design. A single Vault node is not
+highly available, and it uses manual Shamir unsealing.
 
 ```mermaid
 flowchart LR
-    OrdersSA["orders-api ServiceAccount"] -->|"JWT"| Login["Vault Kubernetes auth"]
-    PaymentsSA["payments-api ServiceAccount"] -->|"JWT"| Login
-    Login -->|"TokenReview, using Vault's ServiceAccount"| KubeAPI["Kubernetes API"]
-    KubeAPI -->|"valid / invalid"| Login
-    Login --> OrdersRole["orders-api role"]
-    Login --> PaymentsRole["payments-api role"]
-    OrdersRole --> OrdersPolicy["orders-api-read policy"]
-    PaymentsRole --> PaymentsPolicy["payments-api-read policy"]
-    OrdersPolicy --> OrdersData["apps/orders/config"]
-    PaymentsPolicy --> PaymentsData["apps/payments/config"]
+    Client["Workstation: Terraform + Vault CLI"] -->|"TLS via port-forward"| Vault["Vault on OpenShift"]
+    Vault --> Raft["Persistent Raft volume"]
+    Orders["orders-api ServiceAccount"] -->|"JWT"| Auth["Kubernetes auth"]
+    Payments["payments-api ServiceAccount"] -->|"JWT"| Auth
+    Auth -->|"TokenReview"| API["Kubernetes API"]
+    Auth --> OrdersPolicy["orders-api-read"]
+    Auth --> PaymentsPolicy["payments-api-read"]
 ```
 
-Complete [Stage 2 — Raft and TLS](./OPENSHIFT_VAULT_RAFT_TLS.md) first. Vault
-must be running in the `vault-lab` namespace, initialized, unsealed, and
-reachable through the TLS port-forward.
+## Requirements
 
-## How the TokenReview connection works
+- An OpenShift cluster and a working `oc` login. For a local cluster, use
+  [OpenShift Local (CRC)](https://developers.redhat.com/products/openshift-local/overview);
+  it requires a free Red Hat account and suitable host resources.
+- Terraform 1.5 or later, Helm 3, OpenSSL 3, and the Vault CLI.
+- Permission to create namespaces, a Helm release, persistent volumes, and
+  Kubernetes ServiceAccounts. The Vault ServiceAccount must be allowed to
+  call Kubernetes TokenReview; the chart configuration below grants this.
+- Internet access for Helm chart and Terraform provider downloads.
 
-The Vault Helm chart's `server.authDelegator.enabled` setting grants the Vault
-server ServiceAccount permission to call Kubernetes' TokenReview API. The
-Terraform configuration sets the Kubernetes API address to
-`https://kubernetes.default.svc` and deliberately omits a long-lived
-`token_reviewer_jwt` and a copied CA certificate. Because Vault runs inside
-the cluster, it uses its mounted ServiceAccount token and CA file. HashiCorp
-recommends this local-token approach for current Vault versions; the Vault
-ServiceAccount must retain its `system:auth-delegator` binding.
+The lab uses Vault Community Edition. Review its license terms if your use
+goes beyond personal learning. Confirm that `oc` targets the intended cluster
+before continuing:
 
-The backend config disables Vault's separate issuer-claim check because
-issuer formats vary between Kubernetes/OpenShift versions. Kubernetes still
-validates the presented ServiceAccount JWT through TokenReview; this setting
-does not skip signature, expiry, or TokenReview validation.
+```sh
+oc whoami
+oc whoami --show-server
+oc get nodes
+terraform version
+helm version
+openssl version
+vault version
+```
 
-The Terraform Kubernetes provider manages a separate `vault-apps` namespace
-and two ServiceAccounts. Vault roles bind to the exact ServiceAccount and
-namespace names—no wildcards. These resources are opt-in: this stage's
-Terraform commands set `enable_kubernetes_auth=true`. The default is `false`,
-so Stages 1 and 2 do not try to contact Vault.
+## 1. Create the lab TLS certificate
 
-## 1. Connect Terraform to the cluster and Vault
+The certificate is for the Vault Service and its single Raft pod. Keep the CA
+and server private keys outside the repository:
 
-Confirm that `oc` points to the intended OpenShift cluster and the Vault
-server is reachable. Start the port-forward in a terminal and leave it running:
+```sh
+TLS_DIR="$HOME/.vault-openshift-lab"
+mkdir -p "$TLS_DIR"
+chmod 700 "$TLS_DIR"
+
+openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 365 \
+  -keyout "$TLS_DIR/ca.key" \
+  -out "$TLS_DIR/ca.crt" \
+  -subj "/CN=Vault OpenShift Learning CA" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign"
+
+openssl req -new -newkey rsa:3072 -nodes \
+  -keyout "$TLS_DIR/tls.key" \
+  -out "$TLS_DIR/tls.csr" \
+  -subj "/CN=vault.vault-lab.svc" \
+  -addext "subjectAltName=DNS:vault,DNS:vault.vault-lab,DNS:vault.vault-lab.svc,DNS:vault.vault-lab.svc.cluster.local,DNS:vault-0.vault-internal,DNS:vault-0.vault-internal.vault-lab.svc,DNS:vault-0.vault-internal.vault-lab.svc.cluster.local"
+
+openssl x509 -req -sha256 -days 365 \
+  -in "$TLS_DIR/tls.csr" \
+  -CA "$TLS_DIR/ca.crt" \
+  -CAkey "$TLS_DIR/ca.key" \
+  -CAcreateserial \
+  -copy_extensions copy \
+  -out "$TLS_DIR/tls.crt"
+
+chmod 600 "$TLS_DIR/ca.key" "$TLS_DIR/tls.key"
+openssl verify -CAfile "$TLS_DIR/ca.crt" "$TLS_DIR/tls.crt"
+```
+
+The verification command should report `OK`. Create the TLS Secret in the
+Vault namespace; Helm creates that namespace during the next step:
+
+```sh
+oc create namespace vault-lab
+oc create secret generic vault-server-tls \
+  --namespace vault-lab \
+  --from-file=tls.crt="$TLS_DIR/tls.crt" \
+  --from-file=tls.key="$TLS_DIR/tls.key" \
+  --from-file=ca.crt="$TLS_DIR/ca.crt"
+```
+
+The Secret contains a private key. Do not print it, commit it, or share it.
+
+## 2. Deploy Vault
+
+The final Helm configuration is in
+[terraform/openshift/values-raft-tls.yaml](./terraform/openshift/values-raft-tls.yaml).
+It enables TLS, persistent Raft storage, and the Vault ServiceAccount's
+TokenReview permissions. There is no development-mode deployment.
+
+Terraform uses the current kubeconfig context by default. Initialize and
+review the initial plan. At this point Kubernetes auth is disabled because
+Vault must be initialized before Terraform can configure its auth API:
+the Terraform variable defaults to `true` for the completed lab, so explicitly
+set it to `false` for this first deployment.
+
+```sh
+terraform -chdir=terraform/openshift init
+terraform -chdir=terraform/openshift fmt -check
+terraform -chdir=terraform/openshift validate
+terraform -chdir=terraform/openshift plan \
+  -var='enable_kubernetes_auth=false'
+```
+
+After confirming that the plan targets the intended cluster, deploy Vault:
+
+```sh
+terraform -chdir=terraform/openshift apply \
+  -var='enable_kubernetes_auth=false'
+```
+
+Wait for the pod and persistent volume claim to appear:
+
+```sh
+oc get pods,pvc -n vault-lab
+```
+
+The pod will not become Ready until Vault is initialized and unsealed.
+
+## 3. Initialize and unseal Vault
+
+Initialize the single-node server once. Store the unseal key and initial root
+token in a password manager; they cannot be recovered if lost:
+
+```sh
+oc exec -it -n vault-lab vault-0 -- env \
+  VAULT_ADDR=https://vault-0.vault-internal.vault-lab.svc:8200 \
+  VAULT_CACERT=/vault/userconfig/vault-tls/ca.crt \
+  vault operator init -key-shares=1 -key-threshold=1
+```
+
+Do not run `operator init` again for this Vault data directory. Enter the
+unseal key at the prompt:
+
+```sh
+oc exec -it -n vault-lab vault-0 -- env \
+  VAULT_ADDR=https://vault-0.vault-internal.vault-lab.svc:8200 \
+  VAULT_CACERT=/vault/userconfig/vault-tls/ca.crt \
+  vault operator unseal
+```
+
+Check the pod becomes Ready:
+
+```sh
+oc get pods -n vault-lab --watch
+```
+
+Continue when `vault-0` shows `1/1 Ready`, then press **Ctrl+C**.
+
+## 4. Connect to Vault and configure Kubernetes auth
+
+Start a port-forward and leave it running:
 
 ```sh
 oc port-forward -n vault-lab service/vault 8200:8200
 ```
 
-In the terminal where Terraform will run, configure the local HTTPS connection
-and use the initial Vault root token from Stage 2:
+In the terminal where you will run Terraform, set up TLS and enter the initial
+root token at a hidden prompt:
 
 ```sh
 export VAULT_ADDR=https://127.0.0.1:8200
@@ -66,99 +179,61 @@ IFS= read -r -s VAULT_TOKEN
 printf '\n'
 export VAULT_TOKEN
 vault status
-oc whoami
 ```
 
-Enter the initial root token from Stage 2 at the prompt. The root token has
-full Vault administrative access and is used only because this disposable
-course lab is creating auth configuration. Do not put it in Terraform files,
-shell commands, or source control.
-
-Terraform uses the current kubeconfig context at `~/.kube/config` by default.
-If you need to select a context explicitly, pass it as a Terraform variable:
+The status should report that Vault is initialized and unsealed. Terraform
+now creates a KV v2 `apps/` mount with fake demo values, read-only policies,
+the `vault-apps` namespace and ServiceAccounts, and the Kubernetes auth
+backend and roles:
 
 ```sh
 terraform -chdir=terraform/openshift plan \
-  -var='vault_profile=raft-tls' \
-  -var='enable_kubernetes_auth=true' \
-  -var='kube_context=<your-openshift-context>'
-```
-
-Use the same variables on subsequent `apply` and `destroy` commands.
-
-## 2. Review and apply the authentication configuration
-
-The configuration in
-[terraform/openshift/kubernetes-auth.tf](./terraform/openshift/kubernetes-auth.tf)
-creates:
-
-- A KV v2 `apps/` mount and fake `orders/config` and `payments/config` lab
-  values.
-- Separate read-only policies for the two paths.
-- A Kubernetes auth mount and roles bound to each application's ServiceAccount
-  in `vault-apps`.
-- The `vault-apps` namespace and both ServiceAccounts.
-
-The demo values are not real credentials. The Terraform state contains them;
-keep the state private.
-
-Initialize Terraform to install the Vault and Kubernetes providers, then
-format, validate, and review the plan:
-
-```sh
-terraform -chdir=terraform/openshift init
-terraform -chdir=terraform/openshift fmt -check
-terraform -chdir=terraform/openshift validate
-terraform -chdir=terraform/openshift plan \
-  -var='vault_profile=raft-tls' \
   -var='enable_kubernetes_auth=true'
 ```
 
-The plan should preserve the existing Vault Helm release and add Kubernetes
-auth, policies, demo KV data, a namespace, and ServiceAccounts. Review the
-target cluster and every planned resource before applying:
+Review the complete plan, then apply:
 
 ```sh
 terraform -chdir=terraform/openshift apply \
-  -var='vault_profile=raft-tls' \
   -var='enable_kubernetes_auth=true'
 ```
 
-Type `yes` only after reviewing the plan. Check that the namespace and
-ServiceAccounts exist:
+Check the workload identities were created:
 
 ```sh
-oc get namespace vault-apps
-oc get serviceaccount -n vault-apps
+oc get serviceaccounts -n vault-apps
 ```
 
-## 3. Authenticate as `orders-api`
+Terraform state contains the demo values. Keep it private and do not put real
+credentials in the demo data.
 
-Create a short-lived token for the `orders-api` ServiceAccount. This uses
-Kubernetes' TokenRequest API; it does not create a long-lived token Secret:
+### Why TokenReview works
+
+Vault calls the in-cluster Kubernetes API at
+`https://kubernetes.default.svc`. The Helm chart's
+`server.authDelegator.enabled` setting gives the Vault ServiceAccount
+permission to call TokenReview. Vault uses its mounted ServiceAccount token
+and CA; the configuration does not store a long-lived reviewer token or a
+copied CA certificate. The Kubernetes auth backend disables its separate
+issuer-claim check because issuer formats vary across cluster versions;
+Kubernetes still validates each JWT through TokenReview.
+
+## 5. Test workload access
+
+Request a short-lived Kubernetes token for `orders-api`, exchange it for a
+Vault token, and read its own data:
 
 ```sh
 ORDERS_JWT="$(oc create token orders-api \
   --namespace vault-apps \
   --duration=10m)"
-```
-
-Exchange that JWT for a short-lived Vault token. The response token is kept in
-a shell variable rather than printed:
-
-```sh
 ORDERS_VAULT_TOKEN="$(vault write -field=token auth/kubernetes/login \
   role=orders-api \
   jwt="$ORDERS_JWT")"
-```
-
-Confirm the role can read its own data:
-
-```sh
 VAULT_TOKEN="$ORDERS_VAULT_TOKEN" vault kv get apps/orders/config
 ```
 
-Then prove it cannot read the other application's path:
+The orders identity must not read payments data:
 
 ```sh
 if VAULT_TOKEN="$ORDERS_VAULT_TOKEN" vault kv get apps/payments/config; then
@@ -169,17 +244,7 @@ else
 fi
 ```
 
-The denial is expected. The role restricts authentication to the `orders-api`
-ServiceAccount, and its token carries only the `orders-api-read` policy.
-
-If `oc create token` is denied by cluster permissions, ask the cluster
-administrator for permission to request a short-lived token for these lab
-ServiceAccounts. Do not work around the restriction by creating a
-non-expiring token Secret.
-
-## 4. Authenticate as `payments-api`
-
-Repeat the test for the other ServiceAccount:
+Repeat for `payments-api`:
 
 ```sh
 PAYMENTS_JWT="$(oc create token payments-api \
@@ -191,22 +256,53 @@ PAYMENTS_VAULT_TOKEN="$(vault write -field=token auth/kubernetes/login \
 VAULT_TOKEN="$PAYMENTS_VAULT_TOKEN" vault kv get apps/payments/config
 ```
 
-Try `apps/orders/config` with `PAYMENTS_VAULT_TOKEN`; it should be denied.
-You can also try logging the `orders-api` token in against the
-`payments-api` auth role. That authentication should fail because the role is
-bound to a different ServiceAccount.
+Try reading `apps/orders/config` with `PAYMENTS_VAULT_TOKEN`; it should be
+denied. If `oc create token` is denied, ask the cluster administrator for
+permission to request short-lived tokens. Do not create non-expiring token
+Secrets as a workaround.
 
-The test requests tokens with `oc` for clarity, but uses the same short-lived
-ServiceAccount token mechanism that a pod receives. Applications should
-request Vault tokens from inside the workload and keep both tokens in memory.
-The next integration stage can deliver Vault secrets or certificates to
-workloads without operators manually copying tokens.
+The tests request tokens with `oc` for clarity. In a real workload, the
+application uses its projected ServiceAccount token and keeps the Vault token
+in memory.
 
-## Reset the lab
+## Restarting Vault
 
-When you are ready to remove the deployment and its data, follow
-[Stage 1's reset procedure](./OPENSHIFT_VAULT.md#reset-the-lab-for-a-fresh-terraform-deployment).
+Raft data persists on the PVC, but this lab uses manual unsealing. After a
+Vault pod restart, check status and unseal it with the saved key; do not
+initialize it again:
 
-For Vault Agent or Vault Secrets Operator integrations, certificate issuance
-and renewal, and mTLS between applications, continue to a separate
-application-integration stage after this authentication flow is working.
+```sh
+oc exec -it -n vault-lab vault-0 -- env \
+  VAULT_ADDR=https://vault-0.vault-internal.vault-lab.svc:8200 \
+  VAULT_CACERT=/vault/userconfig/vault-tls/ca.crt \
+  vault operator unseal
+```
+
+## Remove the lab
+
+This permanently deletes Vault data and its workload identities. Ensure
+`oc` targets the intended cluster, the port-forward is running, and Vault is
+unsealed. In the Terraform terminal, verify TLS access and the root token are
+still set, then remove the Vault configuration before uninstalling Vault:
+
+```sh
+oc whoami --show-server
+terraform -chdir=terraform/openshift apply \
+  -var='enable_kubernetes_auth=false'
+terraform -chdir=terraform/openshift destroy \
+  -var='enable_kubernetes_auth=false'
+oc delete namespace vault-lab --wait=true
+```
+
+Inspect persistent volumes after namespace deletion. If a lab volume remains,
+confirm its claim and that its data can be discarded before deleting that
+specific PV:
+
+```sh
+oc get pv -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,CLAIM:.spec.claimRef.name,NAMESPACE:.spec.claimRef.namespace,RECLAIM:.spec.persistentVolumeReclaimPolicy
+```
+
+Keep `$HOME/.vault-openshift-lab` if you want to retain the lab CA. Otherwise,
+remove that specific directory only after confirming you no longer need its
+keys or certificates. Keep Terraform state private; it may contain Vault
+configuration and values.
