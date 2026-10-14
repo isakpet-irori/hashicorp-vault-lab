@@ -37,8 +37,8 @@ resource "kubernetes_config_map_v1" "orders_nginx" {
         listen 8443 ssl;
         server_name orders-api.vault-apps.svc;
 
-        ssl_certificate /etc/nginx/tls/tls.crt;
-        ssl_certificate_key /etc/nginx/tls/tls.key;
+        ssl_certificate ${local.orders_pki_active ? "/vault/secrets/orders-tls.pem" : "/etc/nginx/tls/tls.crt"};
+        ssl_certificate_key ${local.orders_pki_active ? "/vault/secrets/orders-tls.pem" : "/etc/nginx/tls/tls.key"};
 
         location / {
           default_type text/plain;
@@ -62,30 +62,8 @@ resource "kubernetes_config_map_v1" "orders_agent_config" {
     namespace = kubernetes_namespace_v1.apps[0].metadata[0].name
   }
 
-  data = {
-    "agent.hcl" = <<-EOT
-      vault {
-        address = "https://vault.vault-lab.svc:8200"
-        ca_cert = "/vault/config/ca.crt"
-      }
-
-      auto_auth {
-        method "kubernetes" {
-          mount_path = "auth/kubernetes"
-
-          config = {
-            role       = "orders-api"
-            token_path = "/var/run/secrets/vault-auth/token"
-          }
-        }
-      }
-
-      template {
-        source      = "/vault/config/orders-config.ctmpl"
-        destination = "/vault/secrets/orders-config"
-        perms       = "0444"
-      }
-    EOT
+  data = merge({
+    "agent.hcl" = local.orders_pki_active ? local.orders_agent_hcl_with_pki : local.orders_agent_hcl
 
     "orders-config.ctmpl" = <<-EOT
       {{- with secret "apps/data/orders/config" }}
@@ -95,7 +73,14 @@ resource "kubernetes_config_map_v1" "orders_agent_config" {
     EOT
 
     "ca.crt" = file(pathexpand("~/.vault-openshift-lab/ca.crt"))
-  }
+    }, local.orders_pki_active ? {
+    "orders-tls.ctmpl" = local.orders_pki_template
+  } : {})
+
+  depends_on = [
+    vault_pki_secret_backend_role.orders,
+    vault_kubernetes_auth_backend_role.orders,
+  ]
 }
 
 resource "kubernetes_deployment_v1" "orders" {
@@ -141,6 +126,10 @@ resource "kubernetes_deployment_v1" "orders" {
           name              = "nginx"
           image             = "nginxinc/nginx-unprivileged:1.28-alpine"
           image_pull_policy = "IfNotPresent"
+          command           = local.orders_pki_active ? ["/bin/sh", "-c"] : null
+          args = local.orders_pki_active ? [
+            "until [ -s /vault/secrets/orders-tls.pem ]; do sleep 1; done; exec nginx -g 'daemon off;'"
+          ] : null
 
           port {
             name           = "https"
@@ -190,10 +179,14 @@ resource "kubernetes_deployment_v1" "orders" {
             read_only  = true
           }
 
-          volume_mount {
-            name       = "tls"
-            mount_path = "/etc/nginx/tls"
-            read_only  = true
+          dynamic "volume_mount" {
+            for_each = local.orders_pki_active ? [] : [1]
+
+            content {
+              name       = "tls"
+              mount_path = "/etc/nginx/tls"
+              read_only  = true
+            }
           }
 
           volume_mount {
@@ -271,11 +264,15 @@ resource "kubernetes_deployment_v1" "orders" {
           }
         }
 
-        volume {
-          name = "tls"
+        dynamic "volume" {
+          for_each = local.orders_pki_active ? [] : [1]
 
-          secret {
-            secret_name = "orders-api-tls"
+          content {
+            name = "tls"
+
+            secret {
+              secret_name = "orders-api-tls"
+            }
           }
         }
 
@@ -432,9 +429,12 @@ resource "vault_kubernetes_auth_backend_role" "orders" {
   role_name                        = "orders-api"
   bound_service_account_names      = [kubernetes_service_account_v1.orders[0].metadata[0].name]
   bound_service_account_namespaces = [kubernetes_namespace_v1.apps[0].metadata[0].name]
-  token_policies                   = [vault_policy.orders_read[0].name]
-  token_ttl                        = 900
-  token_max_ttl                    = 3600
+  token_policies = concat(
+    [vault_policy.orders_read[0].name],
+    local.orders_pki_active ? [vault_policy.orders_pki_issue[0].name] : []
+  )
+  token_ttl     = 900
+  token_max_ttl = 3600
 
   depends_on = [vault_kubernetes_auth_backend_config.openshift]
 }

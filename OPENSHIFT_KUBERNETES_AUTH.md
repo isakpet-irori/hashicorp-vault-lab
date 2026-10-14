@@ -415,6 +415,187 @@ OpenShift Route is created. The demo secret is non-sensitive. In production,
 protect Vault audit logs and avoid writing secrets into application responses
 or logs.
 
+## 7. Add an offline root and Vault PKI intermediate
+
+This step replaces the app's temporary TLS certificate with one issued by
+Vault. The root CA key signs Vault's intermediate CSR and stays out of Vault;
+Vault generates and keeps the intermediate private key internally. The root
+key is needed only when signing or renewing an intermediate:
+
+```text
+Offline root CA (root key stays offline)
+    └── signs CSR from Vault
+          └── Vault PKI intermediate (private key stays in Vault)
+                └── short-lived orders-api certificate
+```
+
+For the lab, keep the root key in a private directory and use it only for the
+manual signing step. A key on the same workstation is not truly offline:
+production should keep the root key on an isolated system or HSM, with
+controlled access, backups, and documented ceremonies. Do not reuse the
+separate CA that signs Vault's API certificate.
+
+Create a dedicated directory and a root CA if you do not already have one.
+Do not rerun root creation to reset the lab; preserve the root certificate
+and protect its private key:
+
+```sh
+PKI_ROOT_DIR="$HOME/.vault-openshift-lab/offline-root"
+mkdir -p "$PKI_ROOT_DIR"
+chmod 700 "$PKI_ROOT_DIR"
+umask 077
+OPENSSL="$(brew --prefix openssl@3)/bin/openssl"
+
+"$OPENSSL" req -x509 -newkey rsa:4096 -sha256 -aes256 -days 3650 \
+  -keyout "$PKI_ROOT_DIR/root-ca.key" \
+  -out "$PKI_ROOT_DIR/root-ca.crt" \
+  -subj "/CN=OpenShift Vault Lab Offline Root" \
+  -addext "basicConstraints=critical,CA:TRUE,pathlen:1" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign"
+
+chmod 600 "$PKI_ROOT_DIR/root-ca.key"
+```
+
+Ask Terraform to mount the intermediate PKI engine and generate an
+intermediate private key inside Vault. This first phase does not issue app
+certificates. Review the plan before applying:
+
+```sh
+terraform -chdir=terraform/openshift plan \
+  -var='enable_kubernetes_auth=true' \
+  -var='enable_pki=true'
+terraform -chdir=terraform/openshift apply \
+  -var='enable_kubernetes_auth=true' \
+  -var='enable_pki=true'
+```
+
+Export the resulting public CSR. `type = "internal"` asks Vault to generate
+and retain the intermediate private key; the CSR itself contains only public
+key material. The Terraform provider marks any computed private-key attribute
+as sensitive, so protect Terraform state as sensitive data regardless:
+
+```sh
+terraform -chdir=terraform/openshift output -raw orders_pki_intermediate_csr \
+  > "$PKI_ROOT_DIR/orders-intermediate.csr"
+```
+
+Sign the CSR with the offline root key. The path length constraint prevents
+this intermediate from creating further subordinate CAs:
+
+```sh
+cat > "$PKI_ROOT_DIR/intermediate-extensions.cnf" <<'EOF'
+[v3_intermediate_ca]
+basicConstraints = critical,CA:TRUE,pathlen:0
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
+EOF
+
+"$OPENSSL" x509 -req -sha256 -days 1825 \
+  -in "$PKI_ROOT_DIR/orders-intermediate.csr" \
+  -CA "$PKI_ROOT_DIR/root-ca.crt" \
+  -CAkey "$PKI_ROOT_DIR/root-ca.key" \
+  -CAcreateserial \
+  -extfile "$PKI_ROOT_DIR/intermediate-extensions.cnf" \
+  -extensions v3_intermediate_ca \
+  -out "$PKI_ROOT_DIR/orders-intermediate.crt"
+
+"$OPENSSL" verify -CAfile "$PKI_ROOT_DIR/root-ca.crt" \
+  "$PKI_ROOT_DIR/orders-intermediate.crt"
+cat "$PKI_ROOT_DIR/orders-intermediate.crt" "$PKI_ROOT_DIR/root-ca.crt" \
+  > "$PKI_ROOT_DIR/orders-intermediate-chain.pem"
+```
+
+Pass the signed intermediate plus root certificate to Terraform. Only public
+certificates are in this bundle; the root private key stays outside Terraform
+and Vault:
+
+```sh
+terraform -chdir=terraform/openshift plan \
+  -var='enable_kubernetes_auth=true' \
+  -var='enable_pki=true' \
+  -var="pki_intermediate_chain_path=$PKI_ROOT_DIR/orders-intermediate-chain.pem"
+terraform -chdir=terraform/openshift apply \
+  -var='enable_kubernetes_auth=true' \
+  -var='enable_pki=true' \
+  -var="pki_intermediate_chain_path=$PKI_ROOT_DIR/orders-intermediate-chain.pem"
+```
+
+Terraform imports the signed chain into Vault, configures issuing/CRL URLs,
+and creates the `orders-api` PKI role. That role permits only the exact
+`orders-api.vault-apps.svc` name, forbids wildcard and IP SANs, and caps
+certificate lifetime at 24 hours (Agent requests one-hour certificates).
+Only the `orders-api` Vault policy gains permission to issue certificates
+from this role; `payments-api` does not.
+
+The lab's issuer and CRL URLs use Vault's in-cluster Service DNS name. In
+production, configure URLs reachable by the intended certificate consumers
+and publish the root CA through an independently trusted channel.
+
+After the rollout, check both pod containers and the Agent logs:
+
+```sh
+oc rollout status deployment/orders-api -n vault-apps
+oc get pods -n vault-apps -l app=orders-api
+oc logs deployment/orders-api -n vault-apps -c vault-agent
+```
+
+The Agent's `pkiCert` template writes the leaf, intermediate, and private key
+to a single file on the shared memory-backed volume. The app container reads
+that file for its HTTPS identity. Until the next step replaces NGINX, NGINX
+loads the certificate at startup and does not automatically reload it after
+Agent renewal; restarting the pod reloads the current certificate. The next
+step adds an app that reloads certificates and config itself.
+
+Verify the served certificate using the offline root as the trust anchor:
+
+```sh
+oc port-forward -n vault-apps service/orders-api 8443:443
+```
+
+In another terminal:
+
+```sh
+"$OPENSSL" s_client \
+  -connect 127.0.0.1:8443 \
+  -servername orders-api.vault-apps.svc \
+  -CAfile "$PKI_ROOT_DIR/root-ca.crt" \
+  -verify_return_error </dev/null
+```
+
+The verification result should report `Verify return code: 0 (ok)`. You can
+also verify that the workload role cannot issue for another service name:
+
+```sh
+oc exec deployment/orders-api -n vault-apps -c vault-agent -- sh -c '
+  export VAULT_ADDR=https://vault.vault-lab.svc:8200
+  export VAULT_CACERT=/vault/config/ca.crt
+  jwt="$(cat /var/run/secrets/vault-auth/token)"
+  token="$(vault write -field=token auth/kubernetes/login \
+    role=orders-api jwt="$jwt")"
+  VAULT_TOKEN="$token" vault write -field=serial_number \
+    pki_int/issue/orders-api \
+    common_name=orders-api.vault-apps.svc ttl=1h
+  if VAULT_TOKEN="$token" vault write -field=serial_number \
+    pki_int/issue/orders-api \
+    common_name=payments-api.vault-apps.svc ttl=1h; then
+    echo "Unexpected: orders-api issued a payments certificate"
+    exit 1
+  else
+    echo "Expected: issuance for payments-api was denied"
+  fi
+'
+```
+
+The orders app certificate and its key are delivered by Agent, not written to
+a Kubernetes Secret or Terraform state. The original `orders-api-tls` Secret
+from the temporary-certificate stage is no longer mounted; after verifying
+the PKI-backed app works, remove that obsolete Secret:
+
+```sh
+oc delete secret orders-api-tls -n vault-apps
+```
+
 ## Restarting Vault
 
 Vault's Raft data is persisted on persistent volume storage (PV), accessed through a PVC, but this lab uses manual unsealing. After a

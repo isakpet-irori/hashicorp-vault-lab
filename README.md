@@ -1,9 +1,10 @@
 # HashiCorp Vault on OpenShift
 
 A from-scratch learning lab for deploying a single-node Vault server on
-OpenShift Local (CRC) or another OpenShift cluster. The final setup uses
-persistent integrated Raft storage, TLS, Kubernetes authentication for two
-example workload identities, and an HTTPS demo application using one identity.
+OpenShift Local (CRC) or another OpenShift cluster. The lab uses persistent
+integrated Raft storage, TLS, Kubernetes authentication for two example
+workload identities, an offline-root/Vault-intermediate PKI hierarchy, and an
+HTTPS demo application using one identity.
 
 ## Lab
 
