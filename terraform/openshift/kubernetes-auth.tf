@@ -23,34 +23,16 @@ resource "kubernetes_service_account_v1" "orders" {
   }
 }
 
-resource "kubernetes_config_map_v1" "orders_nginx" {
+resource "kubernetes_config_map_v1" "orders_app" {
   count = var.enable_kubernetes_auth ? 1 : 0
 
   metadata {
-    name      = "orders-api-nginx"
+    name      = "orders-api-app"
     namespace = kubernetes_namespace_v1.apps[0].metadata[0].name
   }
 
   data = {
-    "default.conf" = <<-EOT
-      server {
-        listen 8443 ssl;
-        server_name orders-api.vault-apps.svc;
-
-        ssl_certificate ${local.orders_pki_active ? "/vault/secrets/orders-tls.pem" : "/etc/nginx/tls/tls.crt"};
-        ssl_certificate_key ${local.orders_pki_active ? "/vault/secrets/orders-tls.pem" : "/etc/nginx/tls/tls.key"};
-
-        location / {
-          default_type text/plain;
-          return 200 "orders-api HTTPS demo is running\n";
-        }
-
-        location = /config {
-          default_type text/plain;
-          alias /vault/secrets/orders-config;
-        }
-      }
-    EOT
+    "app.py" = file("${path.module}/../../apps/orders-api/app.py")
   }
 }
 
@@ -123,13 +105,35 @@ resource "kubernetes_deployment_v1" "orders" {
         }
 
         container {
-          name              = "nginx"
-          image             = "nginxinc/nginx-unprivileged:1.28-alpine"
+          name              = "orders-api"
+          image             = "python:3.13-alpine"
           image_pull_policy = "IfNotPresent"
-          command           = local.orders_pki_active ? ["/bin/sh", "-c"] : null
-          args = local.orders_pki_active ? [
-            "until [ -s /vault/secrets/orders-tls.pem ]; do sleep 1; done; exec nginx -g 'daemon off;'"
-          ] : null
+          command           = ["python3", "/app/app.py"]
+
+          env {
+            name  = "PYTHONDONTWRITEBYTECODE"
+            value = "1"
+          }
+
+          env {
+            name  = "TLS_BUNDLE_PATH"
+            value = local.orders_pki_active ? "/vault/secrets/orders-tls.pem" : ""
+          }
+
+          env {
+            name  = "TLS_CERT_PATH"
+            value = "/etc/orders-api/tls.crt"
+          }
+
+          env {
+            name  = "TLS_KEY_PATH"
+            value = "/etc/orders-api/tls.key"
+          }
+
+          env {
+            name  = "ORDERS_CONFIG_PATH"
+            value = "/vault/secrets/orders-config"
+          }
 
           port {
             name           = "https"
@@ -137,9 +141,20 @@ resource "kubernetes_deployment_v1" "orders" {
             protocol       = "TCP"
           }
 
+          startup_probe {
+            http_get {
+              path   = "/healthz"
+              port   = 8443
+              scheme = "HTTPS"
+            }
+
+            period_seconds    = 2
+            failure_threshold = 150
+          }
+
           readiness_probe {
             http_get {
-              path   = "/"
+              path   = "/healthz"
               port   = 8443
               scheme = "HTTPS"
             }
@@ -147,7 +162,7 @@ resource "kubernetes_deployment_v1" "orders" {
 
           liveness_probe {
             http_get {
-              path   = "/"
+              path   = "/healthz"
               port   = 8443
               scheme = "HTTPS"
             }
@@ -174,8 +189,14 @@ resource "kubernetes_deployment_v1" "orders" {
           }
 
           volume_mount {
-            name       = "nginx-config"
-            mount_path = "/etc/nginx/conf.d"
+            name       = "app-code"
+            mount_path = "/app"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "shared-config"
+            mount_path = "/vault/secrets"
             read_only  = true
           }
 
@@ -184,20 +205,9 @@ resource "kubernetes_deployment_v1" "orders" {
 
             content {
               name       = "tls"
-              mount_path = "/etc/nginx/tls"
+              mount_path = "/etc/orders-api"
               read_only  = true
             }
-          }
-
-          volume_mount {
-            name       = "tmp"
-            mount_path = "/tmp"
-          }
-
-          volume_mount {
-            name       = "shared-config"
-            mount_path = "/vault/secrets"
-            read_only  = true
           }
         }
 
@@ -257,10 +267,10 @@ resource "kubernetes_deployment_v1" "orders" {
         }
 
         volume {
-          name = "nginx-config"
+          name = "app-code"
 
           config_map {
-            name = kubernetes_config_map_v1.orders_nginx[0].metadata[0].name
+            name = kubernetes_config_map_v1.orders_app[0].metadata[0].name
           }
         }
 
@@ -274,12 +284,6 @@ resource "kubernetes_deployment_v1" "orders" {
               secret_name = "orders-api-tls"
             }
           }
-        }
-
-        volume {
-          name = "tmp"
-
-          empty_dir {}
         }
 
         volume {
@@ -309,6 +313,12 @@ resource "kubernetes_deployment_v1" "orders" {
           empty_dir {
             medium = "Memory"
           }
+        }
+
+        volume {
+          name = "tmp"
+
+          empty_dir {}
         }
       }
     }

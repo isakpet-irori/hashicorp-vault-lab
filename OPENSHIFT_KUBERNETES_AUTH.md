@@ -285,17 +285,22 @@ The tests request tokens with `oc` for clarity. In a real workload, the
 application uses its projected ServiceAccount token and keeps the Vault token
 in memory.
 
-## 6. Deploy an HTTPS workload
+## 6. Deploy the HTTPS workload
 
-Deploy a minimal NGINX HTTPS service using the existing `orders-api`
-ServiceAccount. This gives us a real pod to verify against OpenShift's
-non-root security constraints and demonstrates workload access to Vault.
-The pod uses the `orders-api` ServiceAccount, but automatic token mounting is
-disabled. Instead, a short-lived projected ServiceAccount token is mounted
-only into the Vault Agent sidecar, not into NGINX. Agent authenticates to
-Vault's Kubernetes auth method as `orders-api`, reads only that role's
-permitted `apps/orders/config` secret, and renders it to a shared in-memory
-volume. NGINX serves that file at `/config`.
+Deploy the small Python HTTPS application in `apps/orders-api/app.py` using
+the existing `orders-api` ServiceAccount. Terraform mounts the source from a
+ConfigMap, so no custom image build is required. The application runs under
+OpenShift's assigned non-root UID and serves only through an internal
+ClusterIP Service.
+
+The pod uses automatic ServiceAccount-token mounting disabled. Instead, a
+short-lived projected token is mounted only into the Vault Agent sidecar,
+not the app container. Agent authenticates to Vault as `orders-api`, reads
+only that role's permitted `apps/orders/config` secret, and renders it to a
+shared in-memory volume. The app reads the config file on each `/config`
+request. For this initial deployment, the app uses a temporary TLS
+certificate; step 7 replaces it with a short-lived certificate issued by
+Vault PKI.
 
 For this first deployment, create a temporary lab CA and use it to sign an
 HTTPS leaf certificate for the app. They are only for this lab and will later
@@ -306,15 +311,16 @@ the CA used for Vault's own API TLS:
 APP_TLS_DIR="$HOME/.vault-openshift-lab/orders-api"
 mkdir -p "$APP_TLS_DIR"
 chmod 700 "$APP_TLS_DIR"
+OPENSSL="$(brew --prefix openssl@3)/bin/openssl"
 
-openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 30 \
+"$OPENSSL" req -x509 -newkey rsa:3072 -sha256 -nodes -days 30 \
   -keyout "$APP_TLS_DIR/demo-ca.key" \
   -out "$APP_TLS_DIR/demo-ca.crt" \
   -subj "/CN=Orders API Temporary Lab CA" \
   -addext "basicConstraints=critical,CA:TRUE" \
   -addext "keyUsage=critical,keyCertSign,cRLSign"
 
-openssl req -new -newkey rsa:3072 -sha256 -nodes \
+"$OPENSSL" req -new -newkey rsa:3072 -sha256 -nodes \
   -keyout "$APP_TLS_DIR/tls.key" \
   -out "$APP_TLS_DIR/tls.csr" \
   -subj "/CN=orders-api.vault-apps.svc" \
@@ -322,7 +328,7 @@ openssl req -new -newkey rsa:3072 -sha256 -nodes \
   -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
   -addext "extendedKeyUsage=serverAuth"
 
-openssl x509 -req -sha256 -days 30 \
+"$OPENSSL" x509 -req -sha256 -days 30 \
   -in "$APP_TLS_DIR/tls.csr" \
   -CA "$APP_TLS_DIR/demo-ca.crt" \
   -CAkey "$APP_TLS_DIR/demo-ca.key" \
@@ -331,7 +337,7 @@ openssl x509 -req -sha256 -days 30 \
   -out "$APP_TLS_DIR/tls.crt"
 
 chmod 600 "$APP_TLS_DIR/demo-ca.key" "$APP_TLS_DIR/tls.key"
-openssl verify -CAfile "$APP_TLS_DIR/demo-ca.crt" "$APP_TLS_DIR/tls.crt"
+"$OPENSSL" verify -CAfile "$APP_TLS_DIR/demo-ca.crt" "$APP_TLS_DIR/tls.crt"
 
 oc create secret tls orders-api-tls \
   --namespace vault-apps \
@@ -342,9 +348,9 @@ oc create secret tls orders-api-tls \
 Create the TLS Secret with `oc` rather than Terraform so the private key is
 not copied into Terraform state. The Secret is still stored in the cluster;
 this is a lab shortcut, and production should use protected secret delivery
-and storage. Terraform reads the public Vault CA certificate from
-`$HOME/.vault-openshift-lab/ca.crt` and creates the Agent configuration. It
-then deploys the NGINX and Agent containers and an internal ClusterIP Service:
+and storage. Terraform reads the public Vault API CA certificate from
+`$HOME/.vault-openshift-lab/ca.crt`, creates the Agent configuration and app
+ConfigMap, then deploys the app and Agent containers:
 
 ```sh
 terraform -chdir=terraform/openshift plan \
@@ -367,7 +373,7 @@ The Kubernetes auth login uses the pod's projected token and the `orders-api`
 Vault role. Vault asks the Kubernetes API to validate that token using
 TokenReview, then issues a Vault token with the `orders-api-read` policy.
 Neither the projected Kubernetes token nor the resulting Vault token is
-mounted into the NGINX container.
+mounted into the app container.
 
 Test the service from your workstation using a temporary port-forward. Tell
 `curl` to trust only the temporary lab CA for this request:
@@ -384,8 +390,8 @@ curl --cacert "$HOME/.vault-openshift-lab/orders-api/demo-ca.crt" \
   https://orders-api.vault-apps.svc:8443/
 ```
 
-The root path should return `orders-api HTTPS demo is running`. Check the
-secret rendered by Vault Agent at `/config`:
+The root path should return `orders-api HTTPS app is running`. Check the
+demo config rendered by Vault Agent at `/config`:
 
 ```sh
 curl --cacert "$HOME/.vault-openshift-lab/orders-api/demo-ca.crt" \
@@ -400,20 +406,30 @@ service=orders-api
 region=lab
 ```
 
-You can also confirm the token file is visible to the Agent but not NGINX
+You can also confirm the token file is visible to the Agent but not the app
 without printing the token contents:
 
 ```sh
 oc exec deployment/orders-api -n vault-apps -c vault-agent -- \
   test -s /var/run/secrets/vault-auth/token
-oc exec deployment/orders-api -n vault-apps -c nginx -- \
+oc exec deployment/orders-api -n vault-apps -c orders-api -- \
   sh -c 'test ! -e /var/run/secrets/vault-auth/token'
 ```
 
 The workload is internal-only; the port-forward is temporary and no
 OpenShift Route is created. The demo secret is non-sensitive. In production,
 protect Vault audit logs and avoid writing secrets into application responses
-or logs.
+or logs. To demonstrate config refresh, change only the non-sensitive lab
+value, wait briefly for Agent to render the update, request `/config` again,
+then restore the original value:
+
+```sh
+vault kv put apps/orders/config service=orders-api region=rotation-test
+curl --cacert "$APP_TLS_DIR/demo-ca.crt" \
+  --resolve orders-api.vault-apps.svc:8443:127.0.0.1 \
+  https://orders-api.vault-apps.svc:8443/config
+vault kv put apps/orders/config service=orders-api region=lab
+```
 
 ## 7. Add an offline root and Vault PKI intermediate
 
@@ -437,7 +453,8 @@ separate CA that signs Vault's API certificate.
 
 Create a dedicated directory and a root CA if you do not already have one.
 Do not rerun root creation to reset the lab; preserve the root certificate
-and protect its private key:
+and protect its private key. OpenSSL 3 uses `-cipher aes-256-cbc` to encrypt
+the generated key and will prompt for a passphrase:
 
 ```sh
 PKI_ROOT_DIR="$HOME/.vault-openshift-lab/offline-root"
@@ -446,7 +463,8 @@ chmod 700 "$PKI_ROOT_DIR"
 umask 077
 OPENSSL="$(brew --prefix openssl@3)/bin/openssl"
 
-"$OPENSSL" req -x509 -newkey rsa:4096 -sha256 -aes256 -days 3650 \
+"$OPENSSL" req -x509 -newkey rsa:4096 -sha256 \
+  -cipher aes-256-cbc -days 3650 \
   -keyout "$PKI_ROOT_DIR/root-ca.key" \
   -out "$PKI_ROOT_DIR/root-ca.crt" \
   -subj "/CN=OpenShift Vault Lab Offline Root" \
@@ -524,7 +542,7 @@ terraform -chdir=terraform/openshift apply \
 Terraform imports the signed chain into Vault, configures issuing/CRL URLs,
 and creates the `orders-api` PKI role. That role permits only the exact
 `orders-api.vault-apps.svc` name, forbids wildcard and IP SANs, and caps
-certificate lifetime at 24 hours (Agent requests one-hour certificates).
+certificate lifetime at 24 hours (Agent requests ten-minute certificates).
 Only the `orders-api` Vault policy gains permission to issue certificates
 from this role; `payments-api` does not.
 
@@ -541,11 +559,11 @@ oc logs deployment/orders-api -n vault-apps -c vault-agent
 ```
 
 The Agent's `pkiCert` template writes the leaf, intermediate, and private key
-to a single file on the shared memory-backed volume. The app container reads
-that file for its HTTPS identity. Until the next step replaces NGINX, NGINX
-loads the certificate at startup and does not automatically reload it after
-Agent renewal; restarting the pod reloads the current certificate. The next
-step adds an app that reloads certificates and config itself.
+to one file on the shared memory-backed volume. When PKI is enabled, the app
+uses this bundle instead of the temporary TLS Secret. It loads the latest
+bundle for each new HTTPS connection and reads the KV config file for each
+`/config` request; it does not need a restart for Agent's file updates. The
+temporary Secret is no longer mounted.
 
 Verify the served certificate using the offline root as the trust anchor:
 
@@ -564,7 +582,37 @@ In another terminal:
 ```
 
 The verification result should report `Verify return code: 0 (ok)`. You can
-also verify that the workload role cannot issue for another service name:
+check the app endpoints using the PKI root as the trust anchor:
+
+```sh
+curl --cacert "$PKI_ROOT_DIR/root-ca.crt" \
+  --resolve orders-api.vault-apps.svc:8443:127.0.0.1 \
+  https://orders-api.vault-apps.svc:8443/healthz
+
+curl --cacert "$PKI_ROOT_DIR/root-ca.crt" \
+  --resolve orders-api.vault-apps.svc:8443:127.0.0.1 \
+  https://orders-api.vault-apps.svc:8443/config
+```
+
+The health endpoint should return `ok`; `/config` should still return the
+demo service and region values.
+
+To observe certificate rotation, record the serial served now:
+
+```sh
+"$OPENSSL" s_client \
+  -connect 127.0.0.1:8443 \
+  -servername orders-api.vault-apps.svc \
+  -showcerts -CAfile "$PKI_ROOT_DIR/root-ca.crt" </dev/null 2>/dev/null |
+  sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' |
+  "$OPENSSL" x509 -noout -serial -enddate
+```
+
+Repeat after Vault Agent has refreshed its ten-minute certificate. The
+serial should change without restarting the app; refresh timing is managed
+by Agent and is not instantaneous.
+
+You can also verify that the workload role cannot issue for another name:
 
 ```sh
 oc exec deployment/orders-api -n vault-apps -c vault-agent -- sh -c '

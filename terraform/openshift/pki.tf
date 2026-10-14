@@ -14,7 +14,7 @@ locals {
   orders_pki_active = var.enable_pki && var.pki_intermediate_chain_path != ""
 
   orders_pki_template = <<-EOT
-    {{- with pkiCert "pki_int/issue/orders-api" "common_name=orders-api.vault-apps.svc" "alt_names=orders-api.vault-apps.svc" "ttl=1h" -}}
+    {{- with pkiCert "pki_int/issue/orders-api" "common_name=orders-api.vault-apps.svc" "alt_names=orders-api.vault-apps.svc" "ttl=10m" -}}
     {{ .Cert }}{{ .CA }}{{ .Key }}
     {{- end }}
   EOT

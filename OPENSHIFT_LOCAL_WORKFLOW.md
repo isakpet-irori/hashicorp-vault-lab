@@ -182,7 +182,7 @@ Vault initialization. Treat that token as a secret.
 ### Undo the browser setup
 
 When finished, stop the port-forward with **Ctrl+C**. To remove the host
-mapping, edit `/etc/hosts` again with `sudo nano /etc/hosts` and delete only
+mapping, edit `/etc/hosts` again with `sudo vi /etc/hosts` and delete only
 the `127.0.0.1 vault.vault-lab.svc` line you added.
 
 ## Vault lab certificates
