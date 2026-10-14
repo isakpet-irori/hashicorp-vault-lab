@@ -22,6 +22,10 @@ You need:
   - OpenSSL 3.
   - Vault CLI.
 
+Check the OpenSSL version with `openssl version`. macOS's system binary may
+be LibreSSL rather than OpenSSL 3; if so, use an OpenSSL 3 binary such as the
+Homebrew installation at `$(brew --prefix openssl@3)/bin/openssl`.
+
 CRC includes a local OpenShift cluster, so you do not need a separate remote
 cluster. If you are using another OpenShift cluster instead, you need its API
 endpoint, login credentials, and permission to create the lab resources

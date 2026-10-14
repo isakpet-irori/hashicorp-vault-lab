@@ -3,7 +3,8 @@
 Build the complete lab from scratch on OpenShift Local (CRC) or another
 OpenShift cluster. The result is a single-node Vault server with persistent
 integrated Raft storage, TLS, and separate Vault policies for two workload
-ServiceAccounts.
+ServiceAccounts. It also deploys a minimal HTTPS application using the
+`orders-api` ServiceAccount.
 
 This is a learning setup, not a production design. A single Vault node is not
 highly available, and it uses manual Shamir unsealing.
@@ -12,7 +13,7 @@ highly available, and it uses manual Shamir unsealing.
 flowchart LR
     Client["Workstation: Terraform + Vault CLI"] -->|"TLS via port-forward"| Vault["Vault on OpenShift"]
     Vault --> Raft["Persistent Raft volume"]
-    Orders["orders-api ServiceAccount"] -->|"JWT"| Auth["Kubernetes auth"]
+    Orders["orders-api HTTPS pod + ServiceAccount"] -->|"JWT"| Auth["Kubernetes auth"]
     Payments["payments-api ServiceAccount"] -->|"JWT"| Auth
     Auth -->|"TokenReview"| API["Kubernetes API"]
     Auth --> OrdersPolicy["orders-api-read"]
@@ -269,6 +270,93 @@ The tests request tokens with `oc` for clarity. In a real workload, the
 application uses its projected ServiceAccount token and keeps the Vault token
 in memory.
 
+## 6. Deploy an HTTPS workload
+
+Deploy a minimal NGINX HTTPS service using the existing `orders-api`
+ServiceAccount. This gives us a real pod to verify against OpenShift's
+non-root security constraints and a target for later Vault Agent and PKI
+exercises. At this stage NGINX does **not** authenticate to Vault or read
+secrets. The pod uses the `orders-api` ServiceAccount, but automatic token
+mounting is disabled so NGINX does not receive an unused credential. A later
+Vault Agent step can mount a projected ServiceAccount token only into the
+Agent container.
+
+For this first deployment, create a temporary lab CA and use it to sign an
+HTTPS leaf certificate for the app. They are only for this lab and will later
+be replaced by a certificate issued by Vault PKI. Keep this CA separate from
+the CA used for Vault's own API TLS:
+
+```sh
+APP_TLS_DIR="$HOME/.vault-openshift-lab/orders-api"
+mkdir -p "$APP_TLS_DIR"
+chmod 700 "$APP_TLS_DIR"
+
+openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 30 \
+  -keyout "$APP_TLS_DIR/demo-ca.key" \
+  -out "$APP_TLS_DIR/demo-ca.crt" \
+  -subj "/CN=Orders API Temporary Lab CA" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign"
+
+openssl req -new -newkey rsa:3072 -sha256 -nodes \
+  -keyout "$APP_TLS_DIR/tls.key" \
+  -out "$APP_TLS_DIR/tls.csr" \
+  -subj "/CN=orders-api.vault-apps.svc" \
+  -addext "subjectAltName=DNS:orders-api,DNS:orders-api.vault-apps,DNS:orders-api.vault-apps.svc,DNS:orders-api.vault-apps.svc.cluster.local" \
+  -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+  -addext "extendedKeyUsage=serverAuth"
+
+openssl x509 -req -sha256 -days 30 \
+  -in "$APP_TLS_DIR/tls.csr" \
+  -CA "$APP_TLS_DIR/demo-ca.crt" \
+  -CAkey "$APP_TLS_DIR/demo-ca.key" \
+  -CAcreateserial \
+  -copy_extensions copy \
+  -out "$APP_TLS_DIR/tls.crt"
+
+chmod 600 "$APP_TLS_DIR/demo-ca.key" "$APP_TLS_DIR/tls.key"
+openssl verify -CAfile "$APP_TLS_DIR/demo-ca.crt" "$APP_TLS_DIR/tls.crt"
+
+oc create secret tls orders-api-tls \
+  --namespace vault-apps \
+  --cert="$APP_TLS_DIR/tls.crt" \
+  --key="$APP_TLS_DIR/tls.key"
+```
+
+Create the TLS Secret with `oc` rather than Terraform so the private key is
+not copied into Terraform state. The Secret is still stored in the cluster;
+this is a lab shortcut, and production should use protected secret delivery
+and storage. Terraform deploys the NGINX pod, its ConfigMap, and an internal
+ClusterIP Service:
+
+```sh
+terraform -chdir=terraform/openshift plan \
+  -var='enable_kubernetes_auth=true'
+terraform -chdir=terraform/openshift apply \
+  -var='enable_kubernetes_auth=true'
+oc rollout status deployment/orders-api -n vault-apps
+oc get pods,services -n vault-apps
+```
+
+Test the service from your workstation using a temporary port-forward. Tell
+`curl` to trust only the temporary lab CA for this request:
+
+```sh
+oc port-forward -n vault-apps service/orders-api 8443:443
+```
+
+In another terminal:
+
+```sh
+curl --cacert "$HOME/.vault-openshift-lab/orders-api/demo-ca.crt" \
+  --resolve orders-api.vault-apps.svc:8443:127.0.0.1 \
+  https://orders-api.vault-apps.svc:8443/
+```
+
+The response should be `orders-api HTTPS demo is running`. The workload is
+internal-only; the port-forward is temporary and no OpenShift Route is
+created.
+
 ## Restarting Vault
 
 Vault's Raft data is persisted on persistent volume storage (PV), accessed through a PVC, but this lab uses manual unsealing. After a
@@ -291,6 +379,7 @@ still set, then remove the Vault configuration before uninstalling Vault:
 
 ```sh
 oc whoami --show-server
+oc delete secret orders-api-tls -n vault-apps --ignore-not-found=true
 terraform -chdir=terraform/openshift apply \
   -var='enable_kubernetes_auth=false'
 terraform -chdir=terraform/openshift destroy \

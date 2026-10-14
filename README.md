@@ -2,8 +2,8 @@
 
 A from-scratch learning lab for deploying a single-node Vault server on
 OpenShift Local (CRC) or another OpenShift cluster. The final setup uses
-persistent integrated Raft storage, TLS, and Kubernetes authentication for two
-example workloads.
+persistent integrated Raft storage, TLS, Kubernetes authentication for two
+example workload identities, and an HTTPS demo application using one identity.
 
 ## Lab
 
