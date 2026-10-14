@@ -1,4 +1,4 @@
-.terraform/
+**/.terraform/
 *.tfstate
 *.tfstate.*
 *.tfplan
@@ -9,3 +9,6 @@ terraform.tfvars.json
 *.crt
 *.csr
 *.key
+*.pem
+*.p12
+*.pfx

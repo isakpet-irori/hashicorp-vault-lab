@@ -1,25 +1,27 @@
 # HashiCorp Vault on OpenShift
 
-A from-scratch learning lab for deploying a single-node Vault server on
-OpenShift Local (CRC) or another OpenShift cluster. The lab uses persistent
-integrated Raft storage, TLS, Kubernetes authentication for two example
-workload identities, an offline-root/Vault-intermediate PKI hierarchy, and an
-HTTPS demo application using one identity.
+A learning lab for a single-node Vault deployment on OpenShift Local (CRC) or
+another OpenShift cluster. It demonstrates integrated Raft storage, TLS,
+Kubernetes workload identity, Vault PKI, and an HTTPS demo application. Only
+`orders-api` runs as an app; `payments-api` is used in authorization tests.
 
-## Lab
+![Lab runtime architecture](./assets/architecture.drawio.svg)
 
-Start with [Prerequisites](./PREREQUISITES.md) to prepare your workstation and
-start and verify CRC (if using a local cluster). Then follow
-[OpenShift Vault: Raft, TLS, and Kubernetes auth](./OPENSHIFT_KUBERNETES_AUTH.md)
-for the TLS certificate, Vault deployment and initialization, workload
-identities, and access tests.
+**OpenShift Local console**
 
-For CRC start/stop, `oc`, console, and port-forward basics, see
-[Local OpenShift workflow](./OPENSHIFT_LOCAL_WORKFLOW.md).
+![OpenShift Local console showing the Vault StatefulSet](./assets/OpenShift_UI.png)
 
-## Important
+## Follow the lab
 
-This is a disposable learning setup, not a production deployment. The Vault
-server is a single node with manual unsealing. Keep the TLS private keys,
-unseal key, root token, and Terraform state private. Never put real application
-credentials in the demo KV values.
+1. [Prepare the workstation and cluster](./PREREQUISITES.md).
+2. [Deploy Vault and configure Kubernetes authentication](./OPENSHIFT_KUBERNETES_AUTH.md).
+3. [Deploy the HTTPS app, configure Vault PKI, and test certificate
+   rotation](./HTTPS_WORKLOAD_AND_PKI.md).
+4. [Use CRC, the OpenShift console, port-forwarding, and the Vault
+   UI](./OPENSHIFT_LOCAL_WORKFLOW.md).
+
+Before adapting the lab for real workloads, read
+[Lab security and production considerations](./LAB_SECURITY_AND_PRODUCTION.md).
+This is a disposable learning setup, not a production deployment. Keep private
+keys, the unseal key, root token, and Terraform state private. Never use real
+application credentials in the demo KV values.

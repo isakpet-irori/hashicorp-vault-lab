@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="820" viewBox="0 0 1440 820" role="img" aria-labelledby="title desc">
+  <title id="title">Vault PKI issuance and HTTPS certificate verification</title>
+  <desc id="desc">Setup: Vault generates and retains an intermediate private key and exports a CSR for signing by the root CA; the signed intermediate certificate is imported into Vault. Runtime: Vault Agent authenticates with its projected Kubernetes token, requests a short-lived app certificate, and renders the leaf certificate and key with the intermediate certificate. The app presents the leaf and intermediate to a client, which trusts the root certificate and validates the service hostname. The app does not authenticate the client, so this is not mutual TLS.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#486581"/>
+    </marker>
+    <marker id="green-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#27836e"/>
+    </marker>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #243b53; }
+      .title { font-size: 25px; font-weight: 700; }
+      .subtitle { font-size: 14px; fill: #627d98; }
+      .section { font-size: 17px; font-weight: 700; fill: #315a8a; }
+      .node-title { font-size: 16px; font-weight: 650; }
+      .detail { font-size: 13px; fill: #52667a; }
+      .edge-label { font-size: 12px; font-weight: 600; fill: #486581; }
+      .note { font-size: 13px; fill: #52667a; }
+      .small { font-size: 11px; fill: #627d98; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="820" rx="16" fill="#ffffff"/>
+  <text class="title" x="64" y="48">Vault PKI: issue once, trust many</text>
+  <text class="subtitle" x="64" y="73">Separate CA setup from app certificate use</text>
+
+  <!-- One-time CA setup -->
+  <rect x="56" y="100" width="1328" height="224" rx="16" fill="#f8fbff" stroke="#b8c9de" stroke-width="1.5"/>
+  <text class="section" x="80" y="132">1 · Establish the CA chain (one-time setup)</text>
+
+  <rect x="110" y="166" width="300" height="112" rx="12" fill="#fff8e8" stroke="#d8a94e" stroke-width="1.5"/>
+  <text class="node-title" x="260" y="200" text-anchor="middle">Root CA</text>
+  <text class="detail" x="260" y="225" text-anchor="middle">Signs the intermediate</text>
+  <text class="small" x="260" y="251" text-anchor="middle">Root private key stays outside Vault</text>
+
+  <rect x="570" y="166" width="300" height="112" rx="12" fill="#eaf2ff" stroke="#5b82bd" stroke-width="1.5"/>
+  <text class="node-title" x="720" y="200" text-anchor="middle">Vault PKI intermediate</text>
+  <text class="detail" x="720" y="225" text-anchor="middle">Private key generated and retained in Vault</text>
+  <text class="small" x="720" y="251" text-anchor="middle">Signed public certificate imported</text>
+
+  <rect x="1030" y="166" width="300" height="112" rx="12" fill="#f3f7fc" stroke="#9fb3c8" stroke-width="1.5"/>
+  <text class="node-title" x="1180" y="200" text-anchor="middle">Trusted client root</text>
+  <text class="detail" x="1180" y="225" text-anchor="middle">Public root certificate installed</text>
+  <text class="small" x="1180" y="251" text-anchor="middle">Trust is provisioned out of band</text>
+
+  <path d="M570 204 H410" fill="none" stroke="#486581" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="426" y="172" width="126" height="44" rx="8" fill="#ffffff"/>
+  <text class="edge-label" x="489" y="190" text-anchor="middle">CSR</text>
+  <text class="small" x="489" y="205" text-anchor="middle">public request</text>
+  <path d="M410 245 H570" fill="none" stroke="#486581" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="425" y="250" width="130" height="40" rx="8" fill="#ffffff"/>
+  <text class="edge-label" x="490" y="267" text-anchor="middle">Signed intermediate</text>
+  <text class="small" x="490" y="282" text-anchor="middle">public certificate</text>
+
+  <path d="M870 222 H1030" fill="none" stroke="#9fb3c8" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text class="small" x="950" y="210" text-anchor="middle">same trust chain</text>
+
+  <!-- Runtime certificate issue and use -->
+  <rect x="56" y="350" width="1328" height="390" rx="16" fill="#fbfdfc" stroke="#a8cfc2" stroke-width="1.5"/>
+  <text class="section" x="80" y="382">2 · Issue, serve, and verify a workload certificate</text>
+
+  <rect x="96" y="444" width="224" height="116" rx="12" fill="#eaf2ff" stroke="#5b82bd" stroke-width="1.5"/>
+  <text class="node-title" x="208" y="478" text-anchor="middle">Vault Agent</text>
+  <text class="detail" x="208" y="502" text-anchor="middle">Projected Kubernetes identity</text>
+  <text class="small" x="208" y="527" text-anchor="middle">Gets Vault token; requests cert</text>
+
+  <rect x="414" y="444" width="224" height="116" rx="12" fill="#eaf2ff" stroke="#5b82bd" stroke-width="1.5"/>
+  <text class="node-title" x="526" y="478" text-anchor="middle">Vault PKI</text>
+  <text class="detail" x="526" y="502" text-anchor="middle">Role limits name and lifetime</text>
+  <text class="small" x="526" y="527" text-anchor="middle">Issues leaf certificate + key</text>
+
+  <rect x="732" y="444" width="224" height="116" rx="12" fill="#f0f8f5" stroke="#64a38b" stroke-width="1.5"/>
+  <text class="node-title" x="844" y="478" text-anchor="middle">orders-api app</text>
+  <text class="detail" x="844" y="502" text-anchor="middle">Agent renders TLS bundle</text>
+  <text class="small" x="844" y="527" text-anchor="middle">Leaf + intermediate + private key</text>
+
+  <rect x="1050" y="444" width="224" height="116" rx="12" fill="#f4f7fb" stroke="#9fb3c8" stroke-width="1.5"/>
+  <text class="node-title" x="1162" y="478" text-anchor="middle">HTTPS client</text>
+  <text class="detail" x="1162" y="502" text-anchor="middle">Trusts root-ca.crt locally</text>
+  <text class="small" x="1162" y="527" text-anchor="middle">Checks chain + service hostname</text>
+
+  <path d="M320 502 H414" fill="none" stroke="#486581" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="edge-label" x="367" y="485" text-anchor="middle">auth + issue request</text>
+  <path d="M638 502 H732" fill="none" stroke="#486581" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="edge-label" x="685" y="485" text-anchor="middle">leaf + key</text>
+  <path d="M956 502 H1050" fill="none" stroke="#27836e" stroke-width="2.5" marker-end="url(#green-arrow)"/>
+  <text class="edge-label" x="1003" y="485" text-anchor="middle">TLS handshake</text>
+
+  <!-- Trust chain explanation -->
+  <rect x="112" y="612" width="1160" height="86" rx="12" fill="#ffffff" stroke="#d9e2ec" stroke-width="1.2"/>
+  <text class="node-title" x="692" y="640" text-anchor="middle">What the client verifies</text>
+  <text class="detail" x="692" y="664" text-anchor="middle">App sends: leaf certificate + intermediate  ·  Client already trusts: root-ca.crt</text>
+  <text class="detail" x="692" y="686" text-anchor="middle">leaf → intermediate → trusted root  +  hostname matches orders-api.vault-apps.svc</text>
+
+  <text class="note" x="80" y="720">Server-authenticated TLS only: the app does not request or verify a client certificate (not mTLS).</text>
+</svg>

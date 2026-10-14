@@ -1,0 +1,79 @@
+<mxfile host="app.diagrams.net" modified="2026-10-15T09:20:00.000Z" agent="Copilot" version="24.7.17" type="device">
+  <diagram id="vault-openshift-runtime" name="Runtime architecture">
+    <mxGraphModel dx="1400" dy="820" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="820" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="cluster" value="OpenShift cluster" style="rounded=1;whiteSpace=wrap;html=1;arcSize=4;fillColor=#F8FBFF;strokeColor=#7B9ACC;strokeWidth=2;fontColor=#315A8A;fontStyle=1;fontSize=16;verticalAlign=top;spacingTop=14;spacingLeft=18;" vertex="1" parent="1">
+          <mxGeometry x="56" y="220" width="1288" height="550" as="geometry"/>
+        </mxCell>
+        <mxCell id="vault-pod" value="Vault pod" style="rounded=1;whiteSpace=wrap;html=1;arcSize=4;fillColor=#FFFFFF;strokeColor=#91A9C9;strokeWidth=1.5;fontColor=#243B53;fontStyle=1;fontSize=16;verticalAlign=top;spacingTop=16;spacingLeft=20;" vertex="1" parent="1">
+          <mxGeometry x="94" y="270" width="470" height="442" as="geometry"/>
+        </mxCell>
+        <mxCell id="orders-pod" value="orders-api pod" style="rounded=1;whiteSpace=wrap;html=1;arcSize=4;fillColor=#FFFFFF;strokeColor=#91A9C9;strokeWidth=1.5;fontColor=#243B53;fontStyle=1;fontSize=16;verticalAlign=top;spacingTop=16;spacingLeft=20;" vertex="1" parent="1">
+          <mxGeometry x="606" y="270" width="704" height="442" as="geometry"/>
+        </mxCell>
+        <mxCell id="operator" value="Operator workstation&lt;br&gt;&lt;font style=&quot;font-size: 13px&quot;&gt;Terraform · Vault CLI&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=14;fillColor=#F4F7FB;strokeColor=#9FB3C8;strokeWidth=1.5;fontColor=#243B53;fontStyle=1;fontSize=16;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="165" y="100" width="320" height="76" as="geometry"/>
+        </mxCell>
+        <mxCell id="app-client" value="Application client" style="rounded=1;whiteSpace=wrap;html=1;arcSize=14;fillColor=#F4F7FB;strokeColor=#9FB3C8;strokeWidth=1.5;fontColor=#243B53;fontStyle=1;fontSize=16;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1013" y="100" width="320" height="76" as="geometry"/>
+        </mxCell>
+        <mxCell id="operator-vault" value="Port-forward&lt;br&gt;Vault API CA" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#486581;strokeWidth=2;endArrow=block;endFill=1;fontColor=#486581;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="operator" target="vault">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="client-app" value="HTTPS tunnel&lt;br&gt;Trusts PKI root" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#486581;strokeWidth=2;endArrow=block;endFill=1;fontColor=#486581;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="app-client" target="app">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="agent-vault" value="Kubernetes login&lt;br&gt;KV read · issue cert" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#315A8A;strokeWidth=2.5;endArrow=block;endFill=1;fontColor=#486581;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.26;entryX=1;entryY=0.5;" edge="1" parent="1" source="agent" target="vault">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="590" y="370"/>
+              <mxPoint x="590" y="394"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="vault-tokenreview" value="TokenReview" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#486581;strokeWidth=2;endArrow=block;endFill=1;fontColor=#486581;fontSize=12;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="vault" target="kube-api">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="272" y="492"/>
+              <mxPoint x="223" y="492"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="vault-raft" value="Raft data" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#486581;strokeWidth=2;endArrow=block;endFill=1;fontColor=#486581;fontSize=12;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="vault" target="raft">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="378" y="492"/>
+              <mxPoint x="437" y="492"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="agent-files" value="Renders" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#486581;strokeWidth=2;endArrow=block;endFill=1;fontColor=#486581;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="agent" target="files">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="files-app" value="Read-only" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#486581;strokeWidth=2;endArrow=block;endFill=1;fontColor=#486581;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="files" target="app">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="vault" value="Vault&lt;br&gt;&lt;font style=&quot;font-size: 13px&quot;&gt;Kubernetes auth · KV v2 · PKI&lt;br&gt;Integrated Raft&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#EAF2FF;strokeColor=#5B82BD;strokeWidth=1.5;fontColor=#243B53;fontStyle=1;fontSize=16;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="204" y="344" width="242" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="kube-api" value="Kubernetes API&lt;br&gt;&lt;font style=&quot;font-size: 13px&quot;&gt;TokenReview&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#F3F7FC;strokeColor=#9FB3C8;strokeWidth=1.5;fontColor=#243B53;fontStyle=1;fontSize=16;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="126" y="548" width="194" height="92" as="geometry"/>
+        </mxCell>
+        <mxCell id="raft" value="Raft PVC&lt;br&gt;&lt;font style=&quot;font-size: 13px&quot;&gt;Persistent Vault data&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#F3F7FC;strokeColor=#9FB3C8;strokeWidth=1.5;fontColor=#243B53;fontStyle=1;fontSize=16;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="548" width="194" height="92" as="geometry"/>
+        </mxCell>
+        <mxCell id="agent" value="Vault Agent&lt;br&gt;&lt;font style=&quot;font-size: 13px&quot;&gt;Projected identity&lt;br&gt;KV read · PKI issue&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#EAF2FF;strokeColor=#5B82BD;strokeWidth=1.5;fontColor=#243B53;fontStyle=1;fontSize=16;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="644" y="344" width="174" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="files" value="Rendered files&lt;br&gt;&lt;font style=&quot;font-size: 13px&quot;&gt;Config · TLS bundle&lt;br&gt;Memory-backed volume&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#F0F8F5;strokeColor=#64A38B;strokeWidth=1.5;fontColor=#243B53;fontStyle=1;fontSize=16;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="865" y="344" width="174" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="app" value="HTTPS app&lt;br&gt;&lt;font style=&quot;font-size: 13px&quot;&gt;Reads files · serves TLS&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#EAF2FF;strokeColor=#5B82BD;strokeWidth=1.5;fontColor=#243B53;fontStyle=1;fontSize=16;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1086" y="344" width="174" height="100" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

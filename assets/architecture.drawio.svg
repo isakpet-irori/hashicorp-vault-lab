@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820" role="img" aria-labelledby="title desc">
+  <title id="title">Vault on OpenShift lab runtime architecture</title>
+  <desc id="desc">Vault Agent authenticates to Vault, reads demo KV data and requests an application certificate. It renders files to a shared pod volume consumed by the HTTPS app. Vault uses Kubernetes TokenReview and integrated Raft storage. The operator and app client connect using distinct CA trust chains.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#486581"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#243b53" flood-opacity=".10"/>
+    </filter>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #243b53; }
+      .title { font-size: 25px; font-weight: 700; }
+      .subtitle { font-size: 14px; fill: #627d98; }
+      .group-title { font-size: 16px; font-weight: 700; }
+      .node-title { font-size: 16px; font-weight: 650; }
+      .node-detail { font-size: 13px; fill: #52667a; }
+      .edge-label { font-size: 12px; font-weight: 600; fill: #486581; }
+      .small-label { font-size: 11px; fill: #627d98; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="820" rx="16" fill="#ffffff"/>
+  <text class="title" x="64" y="48">Vault on OpenShift</text>
+  <text class="subtitle" x="64" y="73">Lab runtime · one Vault pod · one HTTPS workload</text>
+
+  <!-- External clients -->
+  <g filter="url(#shadow)">
+    <rect x="165" y="100" width="320" height="76" rx="12" fill="#f4f7fb" stroke="#9fb3c8" stroke-width="1.5"/>
+    <rect x="1013" y="100" width="320" height="76" rx="12" fill="#f4f7fb" stroke="#9fb3c8" stroke-width="1.5"/>
+  </g>
+  <text class="node-title" x="325" y="132" text-anchor="middle">Operator workstation</text>
+  <text class="node-detail" x="325" y="154" text-anchor="middle">Terraform · Vault CLI</text>
+  <text class="node-title" x="1173" y="142" text-anchor="middle">Application client</text>
+
+  <!-- Cluster boundary -->
+  <rect x="56" y="220" width="1288" height="550" rx="18" fill="#f8fbff" stroke="#7b9acc" stroke-width="2"/>
+  <rect x="80" y="206" width="190" height="28" rx="14" fill="#ffffff"/>
+  <text class="group-title" x="94" y="226" fill="#315a8a">OpenShift cluster</text>
+
+  <!-- Pod groups -->
+  <rect x="94" y="270" width="470" height="442" rx="16" fill="#ffffff" stroke="#91a9c9" stroke-width="1.5"/>
+  <text class="group-title" x="118" y="300">Vault pod</text>
+  <rect x="606" y="270" width="704" height="442" rx="16" fill="#ffffff" stroke="#91a9c9" stroke-width="1.5"/>
+  <text class="group-title" x="630" y="300">orders-api pod</text>
+
+  <!-- External access paths -->
+  <path d="M325 176 V344" fill="none" stroke="#486581" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="342" y="178" width="175" height="42" rx="8" fill="#ffffff" stroke="#d9e2ec"/>
+  <text class="edge-label" x="429" y="195" text-anchor="middle">Port-forward</text>
+  <text class="small-label" x="429" y="211" text-anchor="middle">Vault API CA</text>
+
+  <path d="M1173 176 V344" fill="none" stroke="#486581" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="1188" y="178" width="145" height="42" rx="8" fill="#ffffff" stroke="#d9e2ec"/>
+  <text class="edge-label" x="1260" y="195" text-anchor="middle">HTTPS tunnel</text>
+  <text class="small-label" x="1260" y="211" text-anchor="middle">Trusts PKI root</text>
+
+  <!-- Vault components -->
+  <g filter="url(#shadow)">
+    <rect x="204" y="344" width="242" height="100" rx="12" fill="#eaf2ff" stroke="#5b82bd" stroke-width="1.5"/>
+    <rect x="126" y="548" width="194" height="92" rx="12" fill="#f3f7fc" stroke="#9fb3c8" stroke-width="1.5"/>
+    <rect x="340" y="548" width="194" height="92" rx="12" fill="#f3f7fc" stroke="#9fb3c8" stroke-width="1.5"/>
+  </g>
+  <text class="node-title" x="325" y="381" text-anchor="middle">Vault</text>
+  <text class="node-detail" x="325" y="405" text-anchor="middle">Kubernetes auth · KV v2 · PKI</text>
+  <text class="node-detail" x="325" y="426" text-anchor="middle">Integrated Raft</text>
+  <text class="node-title" x="223" y="584" text-anchor="middle">Kubernetes API</text>
+  <text class="node-detail" x="223" y="608" text-anchor="middle">TokenReview</text>
+  <text class="node-title" x="437" y="584" text-anchor="middle">Raft PVC</text>
+  <text class="node-detail" x="437" y="608" text-anchor="middle">Persistent Vault data</text>
+
+  <path d="M272 444 V492 H223 V548" fill="none" stroke="#486581" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M378 444 V492 H437 V548" fill="none" stroke="#486581" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Orders workload -->
+  <g filter="url(#shadow)">
+    <rect x="644" y="344" width="174" height="100" rx="12" fill="#eaf2ff" stroke="#5b82bd" stroke-width="1.5"/>
+    <rect x="865" y="344" width="174" height="100" rx="12" fill="#f0f8f5" stroke="#64a38b" stroke-width="1.5"/>
+    <rect x="1086" y="344" width="174" height="100" rx="12" fill="#eaf2ff" stroke="#5b82bd" stroke-width="1.5"/>
+  </g>
+  <text class="node-title" x="731" y="382" text-anchor="middle">Vault Agent</text>
+  <text class="node-detail" x="731" y="406" text-anchor="middle">Projected identity</text>
+  <text class="node-detail" x="731" y="426" text-anchor="middle">KV read · PKI issue</text>
+  <text class="node-title" x="952" y="382" text-anchor="middle">Rendered files</text>
+  <text class="node-detail" x="952" y="406" text-anchor="middle">Config · TLS bundle</text>
+  <text class="node-detail" x="952" y="426" text-anchor="middle">Memory-backed volume</text>
+  <text class="node-title" x="1173" y="393" text-anchor="middle">HTTPS app</text>
+  <text class="node-detail" x="1173" y="417" text-anchor="middle">Reads files · serves TLS</text>
+
+  <path d="M818 394 H865" fill="none" stroke="#486581" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="edge-label" x="841" y="378" text-anchor="middle">renders</text>
+  <path d="M1039 394 H1086" fill="none" stroke="#486581" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="edge-label" x="1062" y="378" text-anchor="middle">read-only</text>
+
+  <!-- Agent to Vault -->
+  <path d="M644 370 H590 V394 H446" fill="none" stroke="#315a8a" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <rect x="480" y="324" width="143" height="42" rx="8" fill="#ffffff" stroke="#d9e2ec"/>
+  <text class="edge-label" x="551" y="341" text-anchor="middle">Kubernetes login</text>
+  <text class="small-label" x="551" y="357" text-anchor="middle">KV read · issue cert</text>
+
+  <!-- Legend -->
+  <line x1="96" y1="740" x2="143" y2="740" stroke="#486581" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="small-label" x="154" y="744">Request / data flow</text>
+  <text class="small-label" x="360" y="744">Vault API CA and app PKI root are distinct trust chains.</text>
+  <text class="small-label" x="360" y="762">The app does not receive the projected Kubernetes token.</text>
+</svg>
