@@ -44,8 +44,57 @@ resource "kubernetes_config_map_v1" "orders_nginx" {
           default_type text/plain;
           return 200 "orders-api HTTPS demo is running\n";
         }
+
+        location = /config {
+          default_type text/plain;
+          alias /vault/secrets/orders-config;
+        }
       }
     EOT
+  }
+}
+
+resource "kubernetes_config_map_v1" "orders_agent_config" {
+  count = var.enable_kubernetes_auth ? 1 : 0
+
+  metadata {
+    name      = "orders-api-vault-agent"
+    namespace = kubernetes_namespace_v1.apps[0].metadata[0].name
+  }
+
+  data = {
+    "agent.hcl" = <<-EOT
+      vault {
+        address = "https://vault.vault-lab.svc:8200"
+        ca_cert = "/vault/config/ca.crt"
+      }
+
+      auto_auth {
+        method "kubernetes" {
+          mount_path = "auth/kubernetes"
+
+          config = {
+            role       = "orders-api"
+            token_path = "/var/run/secrets/vault-auth/token"
+          }
+        }
+      }
+
+      template {
+        source      = "/vault/config/orders-config.ctmpl"
+        destination = "/vault/secrets/orders-config"
+        perms       = "0444"
+      }
+    EOT
+
+    "orders-config.ctmpl" = <<-EOT
+      {{- with secret "apps/data/orders/config" }}
+      service={{ .Data.data.service }}
+      region={{ .Data.data.region }}
+      {{- end }}
+    EOT
+
+    "ca.crt" = file(pathexpand("~/.vault-openshift-lab/ca.crt"))
   }
 }
 
@@ -151,6 +200,67 @@ resource "kubernetes_deployment_v1" "orders" {
             name       = "tmp"
             mount_path = "/tmp"
           }
+
+          volume_mount {
+            name       = "shared-config"
+            mount_path = "/vault/secrets"
+            read_only  = true
+          }
+        }
+
+        container {
+          name              = "vault-agent"
+          image             = "docker.io/hashicorp/vault:2.0.4"
+          image_pull_policy = "IfNotPresent"
+          command           = ["vault"]
+          args              = ["agent", "-config=/vault/config/agent.hcl"]
+
+          env {
+            name  = "HOME"
+            value = "/tmp"
+          }
+
+          resources {
+            requests = {
+              cpu    = "25m"
+              memory = "32Mi"
+            }
+            limits = {
+              cpu    = "250m"
+              memory = "128Mi"
+            }
+          }
+
+          security_context {
+            allow_privilege_escalation = false
+            read_only_root_filesystem  = true
+
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
+
+          volume_mount {
+            name       = "agent-config"
+            mount_path = "/vault/config"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "vault-auth-token"
+            mount_path = "/var/run/secrets/vault-auth"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "shared-config"
+            mount_path = "/vault/secrets"
+          }
+
+          volume_mount {
+            name       = "tmp"
+            mount_path = "/tmp"
+          }
         }
 
         volume {
@@ -173,6 +283,35 @@ resource "kubernetes_deployment_v1" "orders" {
           name = "tmp"
 
           empty_dir {}
+        }
+
+        volume {
+          name = "agent-config"
+
+          config_map {
+            name = kubernetes_config_map_v1.orders_agent_config[0].metadata[0].name
+          }
+        }
+
+        volume {
+          name = "vault-auth-token"
+
+          projected {
+            sources {
+              service_account_token {
+                path               = "token"
+                expiration_seconds = 600
+              }
+            }
+          }
+        }
+
+        volume {
+          name = "shared-config"
+
+          empty_dir {
+            medium = "Memory"
+          }
         }
       }
     }

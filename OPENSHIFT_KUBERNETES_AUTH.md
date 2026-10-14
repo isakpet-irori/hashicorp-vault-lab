@@ -289,12 +289,13 @@ in memory.
 
 Deploy a minimal NGINX HTTPS service using the existing `orders-api`
 ServiceAccount. This gives us a real pod to verify against OpenShift's
-non-root security constraints and a target for later Vault Agent and PKI
-exercises. At this stage NGINX does **not** authenticate to Vault or read
-secrets. The pod uses the `orders-api` ServiceAccount, but automatic token
-mounting is disabled so NGINX does not receive an unused credential. A later
-Vault Agent step can mount a projected ServiceAccount token only into the
-Agent container.
+non-root security constraints and demonstrates workload access to Vault.
+The pod uses the `orders-api` ServiceAccount, but automatic token mounting is
+disabled. Instead, a short-lived projected ServiceAccount token is mounted
+only into the Vault Agent sidecar, not into NGINX. Agent authenticates to
+Vault's Kubernetes auth method as `orders-api`, reads only that role's
+permitted `apps/orders/config` secret, and renders it to a shared in-memory
+volume. NGINX serves that file at `/config`.
 
 For this first deployment, create a temporary lab CA and use it to sign an
 HTTPS leaf certificate for the app. They are only for this lab and will later
@@ -341,8 +342,9 @@ oc create secret tls orders-api-tls \
 Create the TLS Secret with `oc` rather than Terraform so the private key is
 not copied into Terraform state. The Secret is still stored in the cluster;
 this is a lab shortcut, and production should use protected secret delivery
-and storage. Terraform deploys the NGINX pod, its ConfigMap, and an internal
-ClusterIP Service:
+and storage. Terraform reads the public Vault CA certificate from
+`$HOME/.vault-openshift-lab/ca.crt` and creates the Agent configuration. It
+then deploys the NGINX and Agent containers and an internal ClusterIP Service:
 
 ```sh
 terraform -chdir=terraform/openshift plan \
@@ -352,6 +354,20 @@ terraform -chdir=terraform/openshift apply \
 oc rollout status deployment/orders-api -n vault-apps
 oc get pods,services -n vault-apps
 ```
+
+Wait until both containers are ready, then check the Agent logs for a
+successful Kubernetes auth login and template render:
+
+```sh
+oc get pods -n vault-apps -l app=orders-api
+oc logs deployment/orders-api -n vault-apps -c vault-agent
+```
+
+The Kubernetes auth login uses the pod's projected token and the `orders-api`
+Vault role. Vault asks the Kubernetes API to validate that token using
+TokenReview, then issues a Vault token with the `orders-api-read` policy.
+Neither the projected Kubernetes token nor the resulting Vault token is
+mounted into the NGINX container.
 
 Test the service from your workstation using a temporary port-forward. Tell
 `curl` to trust only the temporary lab CA for this request:
@@ -368,9 +384,36 @@ curl --cacert "$HOME/.vault-openshift-lab/orders-api/demo-ca.crt" \
   https://orders-api.vault-apps.svc:8443/
 ```
 
-The response should be `orders-api HTTPS demo is running`. The workload is
-internal-only; the port-forward is temporary and no OpenShift Route is
-created.
+The root path should return `orders-api HTTPS demo is running`. Check the
+secret rendered by Vault Agent at `/config`:
+
+```sh
+curl --cacert "$HOME/.vault-openshift-lab/orders-api/demo-ca.crt" \
+  --resolve orders-api.vault-apps.svc:8443:127.0.0.1 \
+  https://orders-api.vault-apps.svc:8443/config
+```
+
+It should return:
+
+```text
+service=orders-api
+region=lab
+```
+
+You can also confirm the token file is visible to the Agent but not NGINX
+without printing the token contents:
+
+```sh
+oc exec deployment/orders-api -n vault-apps -c vault-agent -- \
+  test -s /var/run/secrets/vault-auth/token
+oc exec deployment/orders-api -n vault-apps -c nginx -- \
+  sh -c 'test ! -e /var/run/secrets/vault-auth/token'
+```
+
+The workload is internal-only; the port-forward is temporary and no
+OpenShift Route is created. The demo secret is non-sensitive. In production,
+protect Vault audit logs and avoid writing secrets into application responses
+or logs.
 
 ## Restarting Vault
 
