@@ -94,6 +94,51 @@ a public route. Keep the port-forward terminal open while using Vault. Press
 **Ctrl+C** there to close the tunnel. Start it again after stopping CRC or
 restarting the Vault pod.
 
+## Run basic Vault CLI checks
+
+After completing step 4 of the
+[Vault lab guide](./OPENSHIFT_KUBERNETES_AUTH.md), keep the port-forward
+running and use the same terminal where you set `VAULT_ADDR`, `VAULT_CACERT`,
+`VAULT_TLS_SERVER_NAME`, and `VAULT_TOKEN`. Vault must be unsealed, and the
+Terraform apply with `enable_kubernetes_auth=true` must have completed for
+the `apps/` secrets engine and example data to exist.
+
+Check that Vault is reachable, unsealed, and that your token is accepted:
+
+```sh
+vault status
+vault token lookup
+```
+
+List the enabled secrets engines and the demo keys, then read an example
+secret:
+
+```sh
+vault secrets list
+vault kv list apps/
+vault kv get apps/orders/config
+```
+
+For a simple write-and-read test, create a disposable value under the demo
+`apps/` mount:
+
+```sh
+vault kv put apps/lab-smoke-test message="hello from Vault"
+vault kv get apps/lab-smoke-test
+```
+
+Remove that test path and all its versions when finished:
+
+```sh
+vault kv metadata delete apps/lab-smoke-test
+```
+
+These commands use the lab's initial root token, which has broad privileges;
+use only the demo paths shown and do not store real credentials. They check
+basic Vault access and KV operations. The role-specific permission checks for
+the `orders-api` and `payments-api` identities are covered separately in
+[Test workload access](./OPENSHIFT_KUBERNETES_AUTH.md#5-test-workload-access).
+
 ## Open the Vault UI in Firefox
 
 First deploy, initialize, and unseal Vault by following the

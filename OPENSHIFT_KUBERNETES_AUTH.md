@@ -47,8 +47,11 @@ vault version
 
 ## 1. Create the lab TLS certificate
 
-The certificate is for the Vault Service and its single Raft pod. Keep the CA
-and server private keys outside the repository:
+This is Vault's server certificate. Its subject alternative names cover the
+Vault Service and the `vault-0` pod, so clients can verify Vault when
+connecting through either DNS name. Raft is Vault's integrated storage
+backend running in the Vault pod. Keep the CA and
+server private keys outside the repository:
 
 ```sh
 TLS_DIR="$HOME/.vault-openshift-lab"
@@ -268,7 +271,7 @@ in memory.
 
 ## Restarting Vault
 
-Raft data persists on the PVC, but this lab uses manual unsealing. After a
+Vault's Raft data is persisted on persistent volume storage (PV), accessed through a PVC, but this lab uses manual unsealing. After a
 Vault pod restart, check status and unseal it with the saved key; do not
 initialize it again:
 
