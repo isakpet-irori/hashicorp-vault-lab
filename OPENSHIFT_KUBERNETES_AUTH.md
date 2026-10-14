@@ -10,14 +10,29 @@ This is a learning setup, not a production design. A single Vault node is not
 highly available, and it uses manual Shamir unsealing.
 
 ```mermaid
-flowchart LR
-    Client["Workstation: Terraform + Vault CLI"] -->|"TLS via port-forward"| Vault["Vault on OpenShift"]
-    Vault --> Raft["Persistent Raft volume"]
-    Orders["orders-api HTTPS pod + ServiceAccount"] -->|"JWT"| Auth["Kubernetes auth"]
-    Payments["payments-api ServiceAccount"] -->|"JWT"| Auth
-    Auth -->|"TokenReview"| API["Kubernetes API"]
-    Auth --> OrdersPolicy["orders-api-read"]
-    Auth --> PaymentsPolicy["payments-api-read"]
+flowchart TB
+    subgraph Workstation
+        Client["Terraform<br/>Vault CLI"]
+    end
+
+    subgraph OpenShift
+        Vault["Vault<br/>single pod"]
+        Raft["Persistent<br/>volume"]
+        Orders["orders-api<br/>HTTPS app"]
+        Payments["payments-api<br/>identity"]
+        Auth["Kubernetes<br/>auth"]
+        API["Kubernetes<br/>API"]
+        OrdersPolicy["orders-api<br/>policy"]
+        PaymentsPolicy["payments-api<br/>policy"]
+    end
+
+    Client -->|"TLS port-forward"| Vault
+    Vault -->|"stores data"| Raft
+    Orders -->|"ServiceAccount JWT"| Auth
+    Payments -->|"ServiceAccount JWT"| Auth
+    Auth -->|"TokenReview"| API
+    Auth --> OrdersPolicy
+    Auth --> PaymentsPolicy
 ```
 
 ## Requirements
